@@ -22,64 +22,78 @@ async function terrain() {
   const local = await fetch(DEM_PROBE, { method: "HEAD" }).then((r) => r.ok).catch(() => false);
   map.addSource("dem", { type: "raster-dem", tiles: [local ? LOCAL_DEM : DEM], encoding: "terrarium", tileSize: 256, maxzoom: local ? 14 : 13 });
   map.setTerrain({ source: "dem", exaggeration: 1.4 });
-  // faint grey hillshade keeps the lidar relief readable against the black
-  const firstSym = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-  map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", paint: { "hillshade-exaggeration": 0.32, "hillshade-shadow-color": "#000", "hillshade-highlight-color": "#2b2b2e", "hillshade-accent-color": "#101012" } }, firstSym);
-  try { map.setSky({ "sky-color": "#000", "horizon-color": "#070708", "fog-color": "#000", "fog-ground-blend": 0.5, "horizon-fog-blend": 0.5, "sky-horizon-blend": 0.85, "atmosphere-blend": 0.35 }); } catch {}
+  // no hillshade: the relief reads through the wireframe draped over the 3d terrain.
+  try { map.setSky({ "sky-color": "#000", "horizon-color": "#000", "fog-color": "#000", "fog-ground-blend": 0.6, "horizon-fog-blend": 0.5, "sky-horizon-blend": 1, "atmosphere-blend": 0 }); } catch {}
   $("#brand p").textContent = local ? "ea lidar terrain · openstreetmap · open data" : "global dem · run lidar.py for ea lidar terrain";
 }
 
-// ─── collapse the whole osm base to black with white/grey hairlines ───
+// ─── strip the osm base to a pure black sheet drawn only in white 1px hairlines ───
 function basemap() {
   for (const l of map.getStyle().layers) {
     try {
       if (l.type === "background") map.setPaintProperty(l.id, "background-color", "#000");
-      else if (l.type === "fill") {
-        const water = /water|ocean|sea|river|lake/.test(l.id);
-        map.setPaintProperty(l.id, "fill-color", water ? "#0b0e12" : "#000");
-        map.setPaintProperty(l.id, "fill-opacity", water ? 0.85 : 0);
-      } else if (l.type === "line") {
-        map.setPaintProperty(l.id, "line-color", "#ffffff");
-        map.setPaintProperty(l.id, "line-opacity", 0.15);
-      } else if (l.type === "symbol") {
-        map.setPaintProperty(l.id, "text-color", "#8b8b90");
-        map.setPaintProperty(l.id, "text-halo-color", "#000");
-        map.setPaintProperty(l.id, "text-halo-width", 1.2);
-        map.setPaintProperty(l.id, "icon-opacity", 0.35);
-      }
+      else if (l.type === "fill") map.setPaintProperty(l.id, "fill-opacity", 0); // no fills, no grey
+      else if (l.type === "fill-extrusion") map.setLayoutProperty(l.id, "visibility", "none");
+      else if (l.type === "line") {
+        map.setPaintProperty(l.id, "line-color", "#fff");
+        map.setPaintProperty(l.id, "line-width", 1);
+        map.setPaintProperty(l.id, "line-opacity", 1);
+      } else if (l.type === "symbol") map.setLayoutProperty(l.id, "visibility", "none"); // no labels/icons
     } catch {}
   }
 }
 
-// ─── osm 3d buildings as transparent volumes with a white wireframe footprint ───
+// ─── 3d buildings rebuilt as a glowing wireframe: a white grid tiled over every face ───
 function buildings() {
+  if (!map.hasImage("grid")) {
+    const s = 18, c = document.createElement("canvas"); c.width = c.height = s;
+    const x = c.getContext("2d"); x.strokeStyle = "#fff"; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(.5, 0); x.lineTo(.5, s); x.moveTo(0, .5); x.lineTo(s, .5); x.stroke();
+    map.addImage("grid", x.getImageData(0, 0, s, s));
+  }
   const lyr = map.getStyle().layers.find((l) => l.id === "building-3d" || (l.type === "fill-extrusion" && /build/.test(l.id)));
   if (!lyr) return;
-  map.setPaintProperty(lyr.id, "fill-extrusion-color", "#1a1d26");
-  map.setPaintProperty(lyr.id, "fill-extrusion-opacity", 0.5);
-  map.setPaintProperty(lyr.id, "fill-extrusion-vertical-gradient", false);
-  map.addLayer({ id: "building-wire", type: "line", source: lyr.source, "source-layer": lyr["source-layer"], minzoom: 13, paint: { "line-color": "#d4d4d8", "line-width": 0.8, "line-opacity": 0.5 } }, lyr.id);
+  map.setLayoutProperty(lyr.id, "visibility", "visible");
+  map.setPaintProperty(lyr.id, "fill-extrusion-pattern", "grid");
+  map.setPaintProperty(lyr.id, "fill-extrusion-opacity", 1);
+  try { map.setPaintProperty(lyr.id, "fill-extrusion-vertical-gradient", false); } catch {}
 }
 
-// ─── moving trams, simulated along the real osm route geometry ───
+// ─── trams estimated from the published timetable, along the real osm route geometry ───
 const R = 6.371e6, rad = Math.PI / 180;
 const hav = (a, b) => {
   const dla = (b[1] - a[1]) * rad, dlo = (b[0] - a[0]) * rad, la = a[1] * rad, lb = b[1] * rad;
   const h = Math.sin(dla / 2) ** 2 + Math.cos(la) * Math.cos(lb) * Math.sin(dlo / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 };
-let trams = [];
+// each osm feature is one direction of one line; we run a scheduled tram down each.
+let tramLines = [];
 function seedTrams(fc) {
-  const lines = fc.features.map((f) => {
+  tramLines = fc.features.map((f) => {
     const c = f.geometry.coordinates, cum = [0];
     for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + hav(c[i - 1], c[i]));
     return { c, cum, total: cum[cum.length - 1], color: f.properties.colour || "#666", ref: f.properties.ref, name: f.properties.name };
   }).filter((l) => l.total > 500);
-  trams = [];
-  for (const l of lines) {
-    const n = Math.max(1, Math.round(l.total / 1000 / TRAM.gapKm));
-    for (let i = 0; i < n; i++) trams.push({ l, d: (i + Math.random()) * l.total / n });
+}
+// headway (s) for a line right now: peak mon–sat daytime, else off-peak; tram-train always off-peak.
+const headway = (ref, now) => (ref !== "TT" && now.getDay() >= 1 && now.getHours() >= 7 && now.getHours() < 19 ? TRAM.peak : TRAM.off) * 60;
+// every tram the timetable says is en route now, placed at speed·(time since it left its terminus).
+function tramFeatures() {
+  const now = new Date(), nowS = now / 1e3;
+  const dawn = new Date(now); dawn.setHours(TRAM.service[0], 0, 0, 0);
+  const startS = dawn / 1e3, endS = startS + (TRAM.service[1] - TRAM.service[0]) * 3600;
+  if (nowS < startS || nowS > endS) return [];
+  const feats = [];
+  for (const l of tramLines) {
+    const h = headway(l.ref, now), T = l.total / TRAM.speed;
+    for (let m = Math.max(0, Math.ceil((nowS - startS - T) / h)); ; m++) {
+      const dep = startS + m * h, age = nowS - dep;
+      if (age < 0 || dep > endS) break;
+      const { p, brg } = at(l, age * TRAM.speed);
+      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: p }, properties: { color: l.color, brg, ref: l.ref, name: l.name } });
+    }
   }
+  return feats;
 }
 const at = (l, d) => { // position + bearing at distance d along line l
   d = ((d % l.total) + l.total) % l.total;
@@ -100,15 +114,8 @@ function onVehicles(fc) {
   });
 }
 
-let last = performance.now();
 function animate(now) {
-  const dt = Math.min(0.1, (now - last) / 1000); last = now;
-  const feats = trams.map((t) => {
-    t.d += TRAM.speed * dt;
-    const { p, brg } = at(t.l, t.d);
-    return { type: "Feature", geometry: { type: "Point", coordinates: p }, properties: { color: t.l.color, brg, ref: t.l.ref, name: t.l.name } };
-  });
-  map.getSource("trams")?.setData({ type: "FeatureCollection", features: feats });
+  map.getSource("trams")?.setData({ type: "FeatureCollection", features: tramFeatures() });
   if (vehs.length) {
     const vf = vehs.map((v) => {
       const k = Math.min(1, (now - v.t0) / FEEDS.vehicles);
@@ -203,7 +210,7 @@ function syncLegend() {
   const lg = $("#legend"); lg.classList.toggle("show", tramsOn);
   if (!tramsOn) return;
   const seen = {}, lines = [];
-  trams.forEach((t) => { const k = t.l.ref; if (!seen[k]) { seen[k] = 1; lines.push(t.l); } });
+  tramLines.forEach((l) => { if (!seen[l.ref]) { seen[l.ref] = 1; lines.push(l); } });
   lg.innerHTML = lines.map((l) => `<div class="li"><i style="background:${l.color}"></i>${l.ref || l.name || "line"}</div>`).join("");
 }
 
@@ -215,7 +222,7 @@ function poll() {
       const d = await geo(f);
       if (f === "vehicles") {
         onVehicles(d);
-        $("#mode").textContent = d.features.length ? `${d.features.length} live buses` : "trams simulated";
+        $("#mode").textContent = d.features.length ? `${d.features.length} live buses · trams from timetable` : "trams from timetable";
       } else {
         map.getSource(f)?.setData(d);
       }

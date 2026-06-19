@@ -29,4 +29,7 @@ export const LAYERS = [
   ["clean_air", "Clean air zone", false],
 ];
 
-export const TRAM = { speed: 13, gapKm: 1.4, radius: 5.5 }; // m/s, spacing, px
+// trams have no live avl feed, so we estimate from the published timetable: each
+// directional osm route runs a tram every `headway` min (peak mon–sat daytime, else off),
+// within the service window, at the line's real average speed. honest, no-key, deterministic.
+export const TRAM = { speed: 8, radius: 5.5, service: [6, 24], peak: 10, off: 20 }; // m/s, px, [start,end]h, min

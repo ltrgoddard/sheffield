@@ -60,7 +60,10 @@ read sources). Cold tile load can look black for a few seconds — wait before j
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.
 - **Terrarium encoding**: `height = R*256 + G + B/256 - 32768`. Frontend auto-uses
   `data/terrain/` when the probe tile (config `DEM_PROBE`) exists, else a global DEM.
-- **Trams are simulated** (along real OSM geometry) — Supertram has no BODS AVL feed. Buses
-  are genuinely live. The status bar says which; keep that honest.
+- **Trams are timetable-estimated** (along real OSM geometry) — Supertram has *no* public live
+  vehicle feed: not BODS (buses-only — verified: zero tram operators in the live snapshot), and
+  the only live signal (departure boards via TSY/livetrams) is bot-walled or broken. So `TRAM`
+  in config.js drives `tramFeatures()` in app.js: a tram per direction at its real headway within
+  service hours. Buses are genuinely live. The status bar says which; keep that honest.
 
 See `~/.claude/.../memory/sheffield-data-sources.md` for exact endpoints/coverage IDs.

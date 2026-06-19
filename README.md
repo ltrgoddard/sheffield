@@ -7,12 +7,19 @@ while the city's open data quietly layers on top.
 
 ## What you're looking at
 
-- **Terrain** — Sheffield's real hills, from EA LIDAR (or a global DEM until you build the LIDAR tiles).
-- **Buildings** — OpenStreetMap 3D extrusions, restyled to a calm neutral.
+The whole base is stripped to a black sheet drawn only in white 1px hairlines — no labels,
+no fills, no grey. It reads like a blueprint of the living city.
+
+- **Terrain** — Sheffield's real hills, from EA LIDAR (or a global DEM until you build the LIDAR
+  tiles). No hillshade — the relief reads through the wireframe draped over the 3D terrain.
+- **Buildings** — OpenStreetMap 3D extrusions rebuilt as a glowing white wireframe: a fine grid
+  tiled over every face, so the city centre rises in see-through lattice towers.
 - **Trams** — every Supertram line (Blue, Yellow, Purple and the Tram-Train), drawn from
-  the real OSM route geometry, with vehicles animating along them. These are *simulated*
-  until you add a free BODS key (below), at which point real live positions take over —
-  the status bar says which. Sheffield Supertram publishes to BODS, so it goes fully live.
+  the real OSM route geometry. Supertram publishes **no** live vehicle feed (not to BODS,
+  which is buses-only, nor anywhere open and reliable), so positions are *estimated from the
+  published timetable*: each direction runs a tram at its real headway (every 10 min peak
+  Mon–Sat, 20 min off-peak/Sundays) within service hours, at the line's true average speed.
+  Deterministic, no key, and honest — the status bar says "trams from timetable".
 - **Live buses** — DfT Bus Open Data when a key is set (see below).
 - **Open data** — police crime, the council's live highway fault reports, public CCTV
   cameras, wards, and the Clean Air Zone — each a toggleable layer.
@@ -45,8 +52,8 @@ independent and fault-tolerant — run them on a cron or `./fetch.sh live` loop.
 - `transit.py` — Supertram routes + stops (run when the network changes).
 - `crime.py` — latest published month of street-level crime.
 - `council.py` — CCTV, open fault reports (last 30 days), boundaries from the council's ArcGIS.
-- `vehicles.py` — live SIRI-VM positions; needs `BODS_API_KEY` (free registration).
-  Without it, the frontend simulates trams along the OSM routes so the city still moves.
+- `vehicles.py` — live SIRI-VM **bus** positions; needs `BODS_API_KEY` (free registration).
+  Trams aren't in BODS; the frontend estimates them from the timetable regardless.
 - `lidar.py` — the LIDAR ↔ OSM fusion (below).
 
 ### Live buses
@@ -59,9 +66,9 @@ export BODS_API_KEY=…
 ```
 
 `live.sh` loops `./fetch.sh live`; the frontend interpolates each vehicle between
-snapshots so they move smoothly rather than jumping. The status bar switches from
-"trams simulated" to "N live buses". (Supertram doesn't publish vehicle positions to
-BODS, so the trams stay simulated while the buses are real.)
+snapshots so they move smoothly rather than jumping. The status bar then reads
+"N live buses · trams from timetable". (Supertram publishes no live vehicle feed to BODS
+or anywhere reliable, so the buses are real and the trams are timetable-estimated.)
 
 ### LIDAR terrain
 
