@@ -1,5 +1,5 @@
 // central configuration for the sheffield model. tweak here, not in app.js.
-export const CITY = { center: [-1.4701, 53.3811], zoom: 14.2, pitch: 58, bearing: -18 };
+export const CITY = { center: [-1.4685, 53.3787], zoom: 15.4, pitch: 64, bearing: -22 };
 
 // no-key primary tile sources.
 export const BASE = "https://tiles.openfreemap.org/styles/liberty"; // osm vector + 3d buildings

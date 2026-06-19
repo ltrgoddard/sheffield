@@ -20,10 +20,13 @@ const setCount = () => $("#count").textContent =
 // ─── terrain: prefer locally-built ea lidar tiles, else the global aws dem ───
 async function terrain() {
   const local = await fetch(DEM_PROBE, { method: "HEAD" }).then((r) => r.ok).catch(() => false);
-  map.addSource("dem", { type: "raster-dem", tiles: [local ? LOCAL_DEM : DEM], encoding: "terrarium", tileSize: 256, maxzoom: local ? 15 : 13 });
-  map.setTerrain({ source: "dem", exaggeration: 1.3 });
+  map.addSource("dem", { type: "raster-dem", tiles: [local ? LOCAL_DEM : DEM], encoding: "terrarium", tileSize: 256, maxzoom: local ? 14 : 13 });
+  map.setTerrain({ source: "dem", exaggeration: 1.4 });
+  // hillshade makes the lidar relief legible even from straight above
+  const firstSym = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+  map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#52493b", "hillshade-highlight-color": "#fffaf2", "hillshade-accent-color": "#6b6253" } }, firstSym);
   try { map.setSky({ "sky-color": "#9fc4e8", "horizon-color": "#dfeaf2", "fog-color": "#eaf0f4", "fog-ground-blend": 0.4, "horizon-fog-blend": 0.6, "sky-horizon-blend": 0.7, "atmosphere-blend": 0.7 }); } catch {}
-  if (local) $("#brand p").textContent = "ea lidar + openstreetmap + open data";
+  $("#brand p").textContent = local ? "ea lidar terrain · openstreetmap · open data" : "global dem · run lidar.py for ea lidar terrain";
 }
 
 // ─── give the osm 3d buildings a calm, understated material ───
@@ -168,9 +171,10 @@ function poll() {
     if (!ms) continue;
     const tick = async () => {
       const d = await geo(f);
-      const s = map.getSource(f === "tram_routes" ? f : f);
-      if (s) s.setData(d);
+      map.getSource(f)?.setData(d);
       if (f in counts) { counts[f] = d.features.length; setCount(); }
+      if (f === "vehicles") $("#mode").textContent = d.features.length
+        ? `${d.features.length} live vehicles` : "trams simulated";
     };
     setInterval(tick, ms); if (f === "vehicles") tick();
   }
