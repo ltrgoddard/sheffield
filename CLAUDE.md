@@ -1,30 +1,47 @@
 # Sheffield — a living 3D model
 
 Full-screen, pan/zoom 3D map of Sheffield fusing **EA LIDAR** terrain, **OSM** buildings,
-and live **open-data** feeds (buses, crime, council CCTV/faults). Understated, SimCity-ish,
-with things moving. Watch-words: quality, reliability, care.
+and live **open-data** feeds (buses, river levels, air quality, crime, council CCTV/faults,
+trees, development sites, geolocated news). Understated, SimCity-ish, with things moving.
+Watch-words: quality, reliability, care.
 
 ## Architecture
 
-No build step. Plain ES modules + MapLibre GL (CDN) on the front; dependency-light Python
-fetchers on the back. They're decoupled by files: fetchers write `data/*.geojson`, the
-frontend polls them. That's the whole contract.
+No build step, no map library, no CDN. Plain ES modules driving a **custom WebGPU
+renderer** on the front; dependency-light Python fetchers on the back. They're decoupled by
+files: fetchers write `data/*.geojson`, the frontend polls them. That's the whole contract.
+The whole city is drawn as **1px lines** — terrain as a lifted wire grid, buildings as edge
+wireframes, feeds as billboarded line-markers — straight from open data onto the GPU.
 
 ```
 index.html  app.js  config.js  style.css   # frontend
+gpu.js      proj.js                         # webgpu device/pipelines + projection/camera/terrain
 fetchers/   common.py + one script per source
 data/       geojson the fetchers write (data/terrain/ = lidar tiles, gitignored)
 fetch.sh    transit + all live feeds      live.sh   loop the fast feeds (buses)
 serve.sh    static server                 lidar.py  see below
 ```
 
-- **config.js** — the only place to tune: camera, tile URLs, `FEEDS` (file → poll ms),
-  `LAYERS` (toggle id/label/default). Touch this before app.js.
-- **app.js** — map setup → `terrain()` (lidar or fallback DEM + hillshade), `buildings()`
-  (restyle OSM 3D), `layers()` (add every feed's source+layers), `animate()` (rAF loop that
-  moves trams and interpolates live buses), `poll()`. `window.map` is exposed for debugging.
-- **fetchers/common.py** — `fetch`/`get_json` (urllib + retries + UA), `overpass`,
-  `arcgis` (paged geojson), `write`. Everything writes compact EPSG:4326 geojson.
+- **config.js** — the only place to tune: `CITY` camera, `BBOX` (the patch we render),
+  `TERRAIN` (tile zoom/grid/exaggeration), `FEEDS` (file → poll ms), `LAYERS` (toggle
+  id/label/default). Touch this before the JS.
+- **proj.js** — the cpu maths: local-metre projection (`ll2m`), the orbit `Camera`'s
+  view-proj matrix, and `Terrain` (decodes terrarium tiles → a height-field we both drape
+  geometry on via `elev()` and draw as a `wire()` grid).
+- **gpu.js** — the `Renderer`: one WebGPU device, two pipelines (1px `line-list` + instanced
+  point-markers), orbit controls (drag pan / right-drag orbit / wheel dolly), and cpu-side
+  `pick()`. API: `setLine`/`setMark`/`setVisible`/`frame`/`pick`.
+- **app.js** — loads each feed, folds geojson into flat float32 line/point arrays in metres
+  (`buildingWire`/`lineWire`/`setPoints`), runs `animate()` (rAF loop moving trams +
+  interpolating live buses) and `poll()`, wires the toggles + popups. `window.R`/`cam`/`terr`
+  are exposed for debugging.
+- **fetchers/common.py** — `fetch`/`get_json` (urllib + retries + UA; accepts a raw
+  bytes body for JSON POSTs), `overpass`, `arcgis` (paged geojson), `llm` (zero-dep
+  Anthropic call, gated on `ANTHROPIC_API_KEY`), `write` (**atomic** temp-then-rename so
+  the poller never sees a half file). Everything writes compact EPSG:4326 geojson.
+- **fetch.sh** runs every fetcher **in parallel** (independent; one failing never aborts the
+  rest) then `manifest.py`, which writes `data/manifest.json` — a per-feed freshness index
+  (feature count, size, age) for the frontend status and ops.
 
 ## Running / verifying
 
@@ -33,16 +50,20 @@ serve.sh    static server                 lidar.py  see below
 ./serve.sh            # http://localhost:8000
 python3 fetchers/lidar.py     # stream EA lidar → data/terrain (no key, ~3 min)
 export BODS_API_KEY=… && ./live.sh   # real live buses, refreshed every 15s
+export ANTHROPIC_API_KEY=…           # enable llm geolocation of news (else gazetteer fallback)
 ```
 
-Verify visually with headless Playwright (the map uses real WebGL; `window.map` lets you
-read sources). Cold tile load can look black for a few seconds — wait before judging.
+Verify visually with headless Playwright — it ships a real WebGPU adapter; `window.R`
+exposes the renderer (`R.lines`/`R.marks` counts, `R.pick(x,y)`) and `window.cam` the camera.
+Terrain + 12k building wireframes decode in the first second — wait before judging.
 
 ## Conventions
 
 - Code is deliberately minimal/dense; comments lowercase. Keep it that way.
 - **Adding a feed:** write `fetchers/foo.py` that emits `data/foo.geojson`; add it to
-  `FEEDS` + `LAYERS` in config.js; add its source/layers in `layers()` in app.js. Done.
+  `FEEDS` + `LAYERS` in config.js; in app.js `layers()` call `setPoints("foo", …)` for points
+  (add a `PT` style + `POP` popup + `TOG` entry) or `R.setLine("foo", lineWire(…), …)` for
+  lines/polygons. Done.
 - Prefer **primary sources over aggregators** (this was an explicit ask — e.g. the council's
   own ArcGIS over PlanIt).
 
@@ -55,11 +76,26 @@ read sources). Cold tile load can look black for a few seconds — wait before j
   epoch-ms in `where` — use `TIMESTAMP 'YYYY-MM-DD 00:00:00'`. Generalise heavy polygons with
   `maxAllowableOffset`.
 - **police.uk**: `poly` is `lat,lng` pairs colon-separated; data lags ~6 weeks (walk months back).
+- **EA flood-monitoring** (no key!): `id/stations?parameter=level&lat&long&dist&_view=full` takes
+  geo filters and carries `stageScale` (typical range), but **not** the latest value; `id/measures`
+  rejects the same geo filters (400). So `data/readings?latest&parameter=level` (national, ~1.3 MB,
+  no geo filter) is pulled once and joined to the local stations by measure `@id` — hence rivers is
+  a full-run feed, not a 15 s one.
+- **More Sheffield ArcGIS services** (sibling folders to `AGOL/OpenData`): `AGOL/OpenData/6`
+  Brownfield Register + `/17` HELAA = development sites (with dwelling capacity); `Planning/…` =
+  Local Plan policy map. `AGOL/Community_Forestry_Trees/14` exists but its features have **no
+  geometry** — use OSM `natural=tree` for mappable trees instead. (NCR EV chargepoints API was
+  unreachable from here — dropped.)
+- **LLM-as-geocoder**: `news.py` turns unstructured RSS headlines into map pins — one `llm()` call
+  returns place+lat/lng+category per item when `ANTHROPIC_API_KEY` is set, else a built-in
+  neighbourhood gazetteer matches names in the text. Always degrades to valid (possibly empty)
+  geojson; never aborts the run.
 - **EA LIDAR WCS** (no key!): two subsets `&subset=E(a,b)&subset=N(c,d)` must be hand-appended
   (urlencode can't hold duplicate keys); `&scalefactor=` downsamples; axis labels `E N`, EPSG:27700.
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.
-- **Terrarium encoding**: `height = R*256 + G + B/256 - 32768`. Frontend auto-uses
-  `data/terrain/` when the probe tile (config `DEM_PROBE`) exists, else a global DEM.
+- **Terrarium encoding**: `height = R*256 + G + B/256 - 32768`. `Terrain` in proj.js fetches
+  every local `data/terrain/` tile intersecting `BBOX` at `TERRAIN.zoom`, decodes via
+  `OffscreenCanvas`, and is silent (flat, no wire grid) if none are present — run lidar.py.
 - **Trams are timetable-estimated** (along real OSM geometry) — Supertram has *no* public live
   vehicle feed: not BODS (buses-only — verified: zero tram operators in the live snapshot), and
   the only live signal (departure boards via TSY/livetrams) is bot-walled or broken. So `TRAM`

@@ -5,7 +5,7 @@ frontend polls. all sources are primary: openstreetmap, data.police.uk, the
 sheffield city council arcgis server, the dft bus open data service and the
 environment agency. no aggregators.
 """
-import json, time, pathlib, urllib.request, urllib.parse, urllib.error, sys
+import json, time, pathlib, os, urllib.request, urllib.parse, urllib.error, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -17,7 +17,7 @@ def fetch(url, params=None, data=None, headers=None, tries=4, timeout=60):
     """http get/post with urlencoded params, exponential backoff, retries."""
     if params:
         url += "?" + urllib.parse.urlencode(params)
-    body = urllib.parse.urlencode(data).encode() if data else None
+    body = data if isinstance(data, (bytes, bytearray)) else (urllib.parse.urlencode(data).encode() if data else None)
     hdr = {"User-Agent": UA, **(headers or {})}
     for i in range(tries):
         try:
@@ -59,12 +59,28 @@ def fc(features):
 
 
 def write(name, obj):
+    """atomically publish a geojson — write a temp file then rename, so the
+    polling frontend never reads a half-written file (fetchers run in parallel)."""
     DATA.mkdir(exist_ok=True)
-    p = DATA / name
-    p.write_text(json.dumps(obj, separators=(",", ":")))
+    p, tmp = DATA / name, DATA / (name + ".tmp")
+    tmp.write_text(json.dumps(obj, separators=(",", ":")))
+    os.replace(tmp, p)
     n = len(obj.get("features", [])) if isinstance(obj, dict) else 0
     log(f"  → {name}  {n} features, {p.stat().st_size // 1024} kb")
     return p
+
+
+def llm(prompt, system="", model="claude-haiku-4-5-20251001", max_tokens=2048):
+    """one-shot anthropic messages call — text in, text out, zero pip deps.
+    needs ANTHROPIC_API_KEY; raises without it so callers can fall back."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+    body = json.dumps({"model": model, "max_tokens": max_tokens, "system": system,
+                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    r = json.loads(fetch("https://api.anthropic.com/v1/messages", data=body, headers={
+        "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}))
+    return "".join(b.get("text", "") for b in r.get("content", []))
 
 
 def log(*a):

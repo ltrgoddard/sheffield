@@ -8,11 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="map"></div>
+  <canvas id="gpu"></canvas>
+  <div id="popup"></div>
+  <div id="nogpu"></div>
 
   <header id="brand">
     <h1>Sheffield</h1>
@@ -27,7 +28,6 @@
 
   <footer id="status"><span id="dot"></span><span id="clock"></span> · <span id="mode">trams from timetable</span> · <span id="count">loading…</span></footer>
 
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
