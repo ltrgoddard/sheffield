@@ -12,8 +12,9 @@ no fills, no grey. It reads like a blueprint of the living city.
 
 - **Terrain** — Sheffield's real hills, from EA LIDAR (or a global DEM until you build the LIDAR
   tiles). No hillshade — the relief reads through the wireframe draped over the 3D terrain.
-- **Buildings** — OpenStreetMap 3D extrusions rebuilt as a glowing white wireframe: a fine grid
-  tiled over every face, so the city centre rises in see-through lattice towers.
+- **Buildings** — OpenStreetMap 3D extrusions rebuilt as a true white wireframe: a custom WebGL
+  layer extrudes each footprint's real edges — footprint, roofline and verticals — into GL lines
+  from the vector-tile polygons and heights, so the city centre rises in see-through lattice towers.
 - **Trams** — every Supertram line (Blue, Yellow, Purple and the Tram-Train), drawn from
   the real OSM route geometry. Supertram publishes **no** live vehicle feed (not to BODS,
   which is buses-only, nor anywhere open and reliable), so positions are *estimated from the

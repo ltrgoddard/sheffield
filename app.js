@@ -43,20 +43,56 @@ function basemap() {
   }
 }
 
-// ─── 3d buildings rebuilt as a glowing wireframe: a white grid tiled over every face ───
+// ─── 3d buildings as a true wireframe: their real footprint, roofline and vertical
+//     edges drawn as white gl lines, built from the vector tiles' polygons + heights ───
 function buildings() {
-  if (!map.hasImage("grid")) {
-    const s = 18, c = document.createElement("canvas"); c.width = c.height = s;
-    const x = c.getContext("2d"); x.strokeStyle = "#fff"; x.lineWidth = 1;
-    x.beginPath(); x.moveTo(.5, 0); x.lineTo(.5, s); x.moveTo(0, .5); x.lineTo(s, .5); x.stroke();
-    map.addImage("grid", x.getImageData(0, 0, s, s));
-  }
   const lyr = map.getStyle().layers.find((l) => l.id === "building-3d" || (l.type === "fill-extrusion" && /build/.test(l.id)));
   if (!lyr) return;
-  map.setLayoutProperty(lyr.id, "visibility", "visible");
-  map.setPaintProperty(lyr.id, "fill-extrusion-pattern", "grid");
-  map.setPaintProperty(lyr.id, "fill-extrusion-opacity", 1);
-  try { map.setPaintProperty(lyr.id, "fill-extrusion-vertical-gradient", false); } catch {}
+  if (map.getLayer(lyr.id)) map.removeLayer(lyr.id); // bin the solid faces entirely
+  const SRC = lyr.source, SL = lyr["source-layer"];
+  const merc = (lng, lat, alt) => maplibregl.MercatorCoordinate.fromLngLat([lng, lat], alt);
+
+  map.addLayer({
+    id: "building-wire", type: "custom", renderingMode: "3d",
+    onAdd(m, gl) {
+      const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+      this.p = gl.createProgram();
+      gl.attachShader(this.p, sh(gl.VERTEX_SHADER, "uniform mat4 u;attribute vec3 a;void main(){gl_Position=u*vec4(a,1.0);}"));
+      gl.attachShader(this.p, sh(gl.FRAGMENT_SHADER, "void main(){gl_FragColor=vec4(1.0);}"));
+      gl.linkProgram(this.p);
+      this.a = gl.getAttribLocation(this.p, "a"); this.u = gl.getUniformLocation(this.p, "u");
+      this.buf = gl.createBuffer(); this.n = 0;
+      m.on("idle", () => this.build(gl));
+    },
+    build(gl) {
+      const v = [], P = (lng, lat, alt) => { const c = merc(lng, lat, alt); v.push(c.x, c.y, c.z); };
+      for (const f of map.querySourceFeatures(SRC, { sourceLayer: SL })) {
+        const pr = f.properties, h = +pr.render_height || +pr.height || 8, b = +pr.render_min_height || 0;
+        const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+        for (const poly of polys) for (const ring of poly) {
+          const g = map.queryTerrainElevation([ring[0][0], ring[0][1]]) || 0, base = g + b, top = g + h;
+          for (let i = 0; i < ring.length - 1; i++) {
+            const [x1, y1] = ring[i], [x2, y2] = ring[i + 1];
+            P(x1, y1, base); P(x2, y2, base);   // footprint edge
+            P(x1, y1, top); P(x2, y2, top);      // roofline edge
+            P(x1, y1, base); P(x1, y1, top);     // vertical edge at the vertex
+          }
+        }
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.DYNAMIC_DRAW);
+      this.n = v.length / 3; map.triggerRepaint();
+    },
+    render(gl, args) {
+      if (!this.n) return;
+      const m = args.defaultProjectionData ? args.defaultProjectionData.mainMatrix : args;
+      gl.useProgram(this.p); gl.disable(gl.DEPTH_TEST);
+      gl.uniformMatrix4fv(this.u, false, new Float32Array(m));
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+      gl.enableVertexAttribArray(this.a); gl.vertexAttribPointer(this.a, 3, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.LINES, 0, this.n);
+    },
+  });
 }
 
 // ─── trams estimated from the published timetable, along the real osm route geometry ───
