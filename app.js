@@ -65,6 +65,18 @@ const at = (l, d) => { // position + bearing at distance d along line l
   const a = l.c[lo], b = l.c[hi], seg = l.cum[hi] - l.cum[lo] || 1, t = (d - l.cum[lo]) / seg;
   return { p: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], brg: Math.atan2(b[0] - a[0], b[1] - a[1]) / rad };
 };
+// ─── live buses: glide between the position snapshots instead of teleporting ───
+let vehs = [];
+function onVehicles(fc) {
+  const prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
+  vehs = fc.features.map((f) => {
+    const id = f.properties.vehicle || f.geometry.coordinates.join();
+    const p = prev[id];
+    const from = p ? p.cur : f.geometry.coordinates;
+    return { id, from, cur: from, to: f.geometry.coordinates, t0: performance.now(), props: f.properties };
+  });
+}
+
 let last = performance.now();
 function animate(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -74,6 +86,14 @@ function animate(now) {
     return { type: "Feature", geometry: { type: "Point", coordinates: p }, properties: { color: t.l.color, brg, ref: t.l.ref, name: t.l.name } };
   });
   map.getSource("trams")?.setData({ type: "FeatureCollection", features: feats });
+  if (vehs.length) {
+    const vf = vehs.map((v) => {
+      const k = Math.min(1, (now - v.t0) / FEEDS.vehicles);
+      v.cur = [v.from[0] + (v.to[0] - v.from[0]) * k, v.from[1] + (v.to[1] - v.from[1]) * k];
+      return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props };
+    });
+    map.getSource("vehicles")?.setData({ type: "FeatureCollection", features: vf });
+  }
   requestAnimationFrame(animate);
 }
 
@@ -171,10 +191,13 @@ function poll() {
     if (!ms) continue;
     const tick = async () => {
       const d = await geo(f);
-      map.getSource(f)?.setData(d);
+      if (f === "vehicles") {
+        onVehicles(d);
+        $("#mode").textContent = d.features.length ? `${d.features.length} live buses` : "trams simulated";
+      } else {
+        map.getSource(f)?.setData(d);
+      }
       if (f in counts) { counts[f] = d.features.length; setCount(); }
-      if (f === "vehicles") $("#mode").textContent = d.features.length
-        ? `${d.features.length} live vehicles` : "trams simulated";
     };
     setInterval(tick, ms); if (f === "vehicles") tick();
   }

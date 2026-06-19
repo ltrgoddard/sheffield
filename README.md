@@ -51,12 +51,17 @@ independent and fault-tolerant — run them on a cron or `./fetch.sh live` loop.
 
 ### Live buses
 
-Register at [data.bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk), then:
+Register at [data.bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk) for a free key, then:
 
 ```sh
 export BODS_API_KEY=…
-./fetch.sh live      # writes data/vehicles.geojson; the map polls + interpolates it
+./live.sh            # refresh every 15s so ~330 real buses glide around the city
 ```
+
+`live.sh` loops `./fetch.sh live`; the frontend interpolates each vehicle between
+snapshots so they move smoothly rather than jumping. The status bar switches from
+"trams simulated" to "N live buses". (Supertram doesn't publish vehicle positions to
+BODS, so the trams stay simulated while the buses are real.)
 
 ### LIDAR terrain
 
