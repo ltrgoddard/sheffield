@@ -1,0 +1,7 @@
+# generated lidar terrain tiles (large; build locally via fetchers/lidar.py)
+data/terrain/
+# browser automation artifacts
+.playwright-mcp/
+__pycache__/
+*.pyc
+.DS_Store

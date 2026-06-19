@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Sheffield — a living model</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2311161b'/><circle cx='16' cy='16' r='6' fill='%234ade80'/></svg>">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <header id="brand">
+    <h1>Sheffield</h1>
+    <p>a living model · lidar + openstreetmap + open data</p>
+  </header>
+
+  <aside id="panel">
+    <div class="hd">Layers</div>
+    <div id="toggles"></div>
+    <div id="legend"></div>
+  </aside>
+
+  <footer id="status"><span id="dot"></span><span id="clock"></span> · <span id="count">loading…</span></footer>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
