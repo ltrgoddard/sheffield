@@ -22,20 +22,43 @@ async function terrain() {
   const local = await fetch(DEM_PROBE, { method: "HEAD" }).then((r) => r.ok).catch(() => false);
   map.addSource("dem", { type: "raster-dem", tiles: [local ? LOCAL_DEM : DEM], encoding: "terrarium", tileSize: 256, maxzoom: local ? 14 : 13 });
   map.setTerrain({ source: "dem", exaggeration: 1.4 });
-  // hillshade makes the lidar relief legible even from straight above
+  // faint grey hillshade keeps the lidar relief readable against the black
   const firstSym = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-  map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#52493b", "hillshade-highlight-color": "#fffaf2", "hillshade-accent-color": "#6b6253" } }, firstSym);
-  try { map.setSky({ "sky-color": "#9fc4e8", "horizon-color": "#dfeaf2", "fog-color": "#eaf0f4", "fog-ground-blend": 0.4, "horizon-fog-blend": 0.6, "sky-horizon-blend": 0.7, "atmosphere-blend": 0.7 }); } catch {}
+  map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", paint: { "hillshade-exaggeration": 0.32, "hillshade-shadow-color": "#000", "hillshade-highlight-color": "#2b2b2e", "hillshade-accent-color": "#101012" } }, firstSym);
+  try { map.setSky({ "sky-color": "#000", "horizon-color": "#070708", "fog-color": "#000", "fog-ground-blend": 0.5, "horizon-fog-blend": 0.5, "sky-horizon-blend": 0.85, "atmosphere-blend": 0.35 }); } catch {}
   $("#brand p").textContent = local ? "ea lidar terrain · openstreetmap · open data" : "global dem · run lidar.py for ea lidar terrain";
 }
 
-// ─── give the osm 3d buildings a calm, understated material ───
+// ─── collapse the whole osm base to black with white/grey hairlines ───
+function basemap() {
+  for (const l of map.getStyle().layers) {
+    try {
+      if (l.type === "background") map.setPaintProperty(l.id, "background-color", "#000");
+      else if (l.type === "fill") {
+        const water = /water|ocean|sea|river|lake/.test(l.id);
+        map.setPaintProperty(l.id, "fill-color", water ? "#0b0e12" : "#000");
+        map.setPaintProperty(l.id, "fill-opacity", water ? 0.85 : 0);
+      } else if (l.type === "line") {
+        map.setPaintProperty(l.id, "line-color", "#ffffff");
+        map.setPaintProperty(l.id, "line-opacity", 0.15);
+      } else if (l.type === "symbol") {
+        map.setPaintProperty(l.id, "text-color", "#8b8b90");
+        map.setPaintProperty(l.id, "text-halo-color", "#000");
+        map.setPaintProperty(l.id, "text-halo-width", 1.2);
+        map.setPaintProperty(l.id, "icon-opacity", 0.35);
+      }
+    } catch {}
+  }
+}
+
+// ─── osm 3d buildings as transparent volumes with a white wireframe footprint ───
 function buildings() {
   const lyr = map.getStyle().layers.find((l) => l.id === "building-3d" || (l.type === "fill-extrusion" && /build/.test(l.id)));
   if (!lyr) return;
-  map.setPaintProperty(lyr.id, "fill-extrusion-color", ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 0], 0, "#e7e3da", 25, "#dcd7cc", 80, "#c9c3b6"]);
-  map.setPaintProperty(lyr.id, "fill-extrusion-opacity", 0.95);
-  map.setPaintProperty(lyr.id, "fill-extrusion-vertical-gradient", true);
+  map.setPaintProperty(lyr.id, "fill-extrusion-color", "#1a1d26");
+  map.setPaintProperty(lyr.id, "fill-extrusion-opacity", 0.5);
+  map.setPaintProperty(lyr.id, "fill-extrusion-vertical-gradient", false);
+  map.addLayer({ id: "building-wire", type: "line", source: lyr.source, "source-layer": lyr["source-layer"], minzoom: 13, paint: { "line-color": "#d4d4d8", "line-width": 0.8, "line-opacity": 0.5 } }, lyr.id);
 }
 
 // ─── moving trams, simulated along the real osm route geometry ───
@@ -117,28 +140,28 @@ const date = (ms) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", 
 async function layers() {
   // network outlines (wards / clean air / boundary) sit lowest
   src("wards", await geo("wards")); reg.wards = ["wards-l"];
-  map.addLayer({ id: "wards-l", type: "line", source: "wards", layout: { visibility: "none" }, paint: { "line-color": "#5b7", "line-width": 1, "line-opacity": 0.4, "line-dasharray": [3, 2] } });
+  map.addLayer({ id: "wards-l", type: "line", source: "wards", layout: { visibility: "none" }, paint: { "line-color": "#fff", "line-width": 1, "line-opacity": 0.28, "line-dasharray": [3, 2] } });
 
   src("clean_air", await geo("clean_air")); reg.clean_air = ["clean_air-f", "clean_air-l"];
-  map.addLayer({ id: "clean_air-f", type: "fill", source: "clean_air", layout: { visibility: "none" }, paint: { "fill-color": "#3fb27f", "fill-opacity": 0.08 } });
-  map.addLayer({ id: "clean_air-l", type: "line", source: "clean_air", layout: { visibility: "none" }, paint: { "line-color": "#3fb27f", "line-width": 1.5, "line-opacity": 0.5 } });
+  map.addLayer({ id: "clean_air-f", type: "fill", source: "clean_air", layout: { visibility: "none" }, paint: { "fill-color": "#fff", "fill-opacity": 0.05 } });
+  map.addLayer({ id: "clean_air-l", type: "line", source: "clean_air", layout: { visibility: "none" }, paint: { "line-color": "#fff", "line-width": 1.2, "line-opacity": 0.45, "line-dasharray": [2, 2] } });
 
   src("boundary", await geo("boundary"));
-  map.addLayer({ id: "boundary-l", type: "line", source: "boundary", paint: { "line-color": "#7c8694", "line-width": 1.4, "line-opacity": 0.45 } });
+  map.addLayer({ id: "boundary-l", type: "line", source: "boundary", paint: { "line-color": "#fff", "line-width": 1.2, "line-opacity": 0.3 } });
 
   // crime + faults (clustered)
   const crime = await geo("crime"); counts.crime = crime.features.length; src("crime", crime, true);
-  reg.crime = clusterLayers("crime", "#e0654a");
+  reg.crime = clusterLayers("crime", "#e4e4e7");
   popup("crime", (p) => `<b>${p.category}</b><div class="v">${p.street || "—"}</div><div class="m">${p.outcome || "under investigation"} · ${p.month}</div>`);
 
   const faults = await geo("faults"); counts.faults = faults.features.length; src("faults", faults, true);
-  reg.faults = clusterLayers("faults", "#e0964a");
+  reg.faults = clusterLayers("faults", "#a1a1aa");
   popup("faults", (p) => `<b>${p.fault_status || "reported"}</b><div class="v">${(p.fault_description || "").slice(0, 150)}</div><div class="m">opened ${date(p.fault_open_date)}</div>`);
 
   // cctv
   src("cctv", await geo("cctv")); reg.cctv = ["cctv-l"];
   counts.cctv = (map.getSource("cctv")._data?.features || []).length;
-  map.addLayer({ id: "cctv-l", type: "circle", source: "cctv", layout: { visibility: "none" }, paint: { "circle-color": "#3aa0c9", "circle-radius": 4.5, "circle-opacity": 0.9, "circle-stroke-color": "#fff", "circle-stroke-width": 1, "circle-stroke-opacity": 0.5 } });
+  map.addLayer({ id: "cctv-l", type: "circle", source: "cctv", layout: { visibility: "none" }, paint: { "circle-color": "transparent", "circle-radius": 4, "circle-stroke-color": "#d4d4d8", "circle-stroke-width": 1, "circle-stroke-opacity": 0.8 } });
   popup("cctv-l", (p) => `<b>CCTV ${p.cam_number || ""}</b><div class="v">${p.location || ""}</div><div class="m">${p.notes || ""}</div>`);
 
   // tram network: faint route lines + stops + the moving trams
@@ -147,7 +170,7 @@ async function layers() {
   map.addLayer({ id: "tram-line", type: "line", source: "tram_routes", paint: { "line-color": ["get", "colour"], "line-width": 2, "line-opacity": 0.35 } });
 
   src("tram_stops", await geo("tram_stops")); reg.stops = ["stops-l"];
-  map.addLayer({ id: "stops-l", type: "circle", source: "tram_stops", layout: { visibility: "none" }, paint: { "circle-color": "#fff", "circle-radius": 3.5, "circle-stroke-color": "#444", "circle-stroke-width": 1.5 } });
+  map.addLayer({ id: "stops-l", type: "circle", source: "tram_stops", layout: { visibility: "none" }, paint: { "circle-color": "transparent", "circle-radius": 3, "circle-stroke-color": "#fff", "circle-stroke-width": 1.2, "circle-stroke-opacity": 0.85 } });
   popup("stops-l", (p) => `<b>Tram stop</b><div class="v">${p.name || ""}</div>`);
 
   src("trams", empty);
@@ -156,7 +179,7 @@ async function layers() {
 
   // live buses (only present when BODS_API_KEY is configured)
   src("vehicles", empty); reg.vehicles = ["vehicles-l"];
-  map.addLayer({ id: "vehicles-l", type: "circle", source: "vehicles", paint: { "circle-color": "#1f9e8c", "circle-radius": 4.5, "circle-stroke-color": "#fff", "circle-stroke-width": 1.4, "circle-stroke-opacity": 0.85 } });
+  map.addLayer({ id: "vehicles-l", type: "circle", source: "vehicles", paint: { "circle-color": "#fff", "circle-radius": 3.6, "circle-stroke-color": "#fff", "circle-stroke-width": 3, "circle-stroke-opacity": 0.18 } });
   popup("vehicles-l", (p) => `<b>Bus ${p.line || ""}</b><div class="m">${p.operator || ""}</div>`);
 
   requestAnimationFrame(animate);
@@ -165,9 +188,8 @@ async function layers() {
 
 // ─── ui: toggles + legend ───
 function buildUI() {
-  const sw = { trams: "#888", stops: "#fff", vehicles: "#1f9e8c", cctv: "#3aa0c9", faults: "#e0964a", crime: "#e0654a", wards: "#5b7", clean_air: "#3fb27f" };
   $("#toggles").innerHTML = LAYERS.map(([id, label, on]) =>
-    `<div class="row ${on ? "on" : ""}" data-id="${id}"><span class="sw" style="background:${sw[id]}"></span>${label}<span class="tk"></span></div>`).join("");
+    `<div class="row ${on ? "on" : ""}" data-id="${id}">${label}<span class="tk"></span></div>`).join("");
   $("#toggles").querySelectorAll(".row").forEach((row) => {
     const id = row.dataset.id, on = row.classList.contains("on");
     setVis(id, on);
@@ -205,4 +227,4 @@ function poll() {
   clock(); setInterval(clock, 1000);
 }
 
-map.on("load", async () => { await terrain(); buildings(); await layers(); });
+map.on("load", async () => { await terrain(); basemap(); buildings(); await layers(); });
