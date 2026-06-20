@@ -218,7 +218,7 @@ function poll() {
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
     R = new Renderer($("#gpu"), cam); await R.init();
     window.R = R; window.cam = cam; window.terr = terr;
-    if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .07], true);
+    if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], true);
     wirePicking(); await layers();
   } catch (e) {
     $("#nogpu").style.display = "block"; $("#nogpu").textContent = "this view needs a webgpu browser — " + e.message;
