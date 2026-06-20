@@ -107,53 +107,29 @@ const at = (l, d) => { d = ((d % l.total) + l.total) % l.total; let lo = 0, hi =
   const a = l.c[lo], b = l.c[hi], seg = l.cum[hi] - l.cum[lo] || 1, t = (d - l.cum[lo]) / seg;
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
 
-// ─── live buses: ride the real road network out from each fix, so motion is
-// continuous and on-road — never rubber-banding back or drifting off the map the
-// way raw dead-reckoning does. a snapshot snaps each bus to its nearest road and
-// drives it along (direction from its bearing, bouncing at road ends); a genuinely
-// new fix re-snaps it (identical re-polls are ignored). with a live feed they track
-// real movement, without one they just keep cruising the streets. (see CLAUDE.md)
-const MPS = 6, CELL = 250;          // bus cruising speed (m/s) + road-snap grid cell (m)
-let vehs = [], roadLines = [], grid = new Map(), vlast = 0, vsig = "";
-function seedRoads(fc) {
-  roadLines = []; grid = new Map();
-  for (const f of fc.features) {
-    const g = f.geometry, lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
-    for (const c of lines) { if (c.length < 2) continue;
-      const m = c.map((p) => ll2m(p[0], p[1])), cum = [0];
-      for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + Math.hypot(m[i][0] - m[i - 1][0], m[i][1] - m[i - 1][1]));
-      if (cum[cum.length - 1] < 30) continue;
-      const l = { c, m, cum, total: cum[cum.length - 1] }; roadLines.push(l);
-      m.forEach((p, i) => { const k = (p[0] / CELL | 0) + "," + (p[1] / CELL | 0); (grid.get(k) || grid.set(k, []).get(k)).push([l, i]); });
-    }
-  }
-}
-function snapRoad(lng, lat, brg) {     // nearest road vertex (3×3 grid window) → {line, d, dir}
-  const [bx, by] = ll2m(lng, lat), cx = bx / CELL | 0, cy = by / CELL | 0; let best = 1e30, bl, bi;
-  for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) { const b = grid.get(gx + "," + gy); if (!b) continue;
-    for (const [l, i] of b) { const dx = l.m[i][0] - bx, dy = l.m[i][1] - by, dd = dx * dx + dy * dy; if (dd < best) { best = dd; bl = l; bi = i; } } }
-  if (!bl) return null;                // bus beyond road coverage — drop it
-  const j = bi < bl.m.length - 1 ? bi : bi - 1, tx = bl.m[j + 1][0] - bl.m[j][0], ty = bl.m[j + 1][1] - bl.m[j][1];
-  return { line: bl, d: bl.cum[bi], dir: Math.sin(brg) * tx + Math.cos(brg) * ty >= 0 ? 1 : -1 };
-}
+// ─── live buses: glide each bus along the straight line between its real reported
+// fixes. honest (it shows only movement the feed actually reports), monotonic — it
+// never bounces backwards or drifts off-road the way fabricated dead-reckoning did —
+// and smooth: a new fix becomes the target and the marker eases toward it over the
+// time the previous fix took, so motion matches the feed's own cadence. (see CLAUDE.md)
+let vehs = [];
 function onVehicles(fc) {
-  if (!roadLines.length) return;
-  const sig = fc.features.length + (fc.features[0]?.geometry.coordinates + "") + (fc.features.at(-1)?.geometry.coordinates + "");
-  if (sig === vsig) return; vsig = sig;          // ignore unchanged re-polls so static data seeds once
-  const prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
-  vehs = fc.features.map((f) => { const id = f.properties.vehicle || f.geometry.coordinates.join(), c = f.geometry.coordinates;
-    const s = snapRoad(c[0], c[1], (f.properties.bearing || 0) * D); if (!s) return null;
-    return { id, ...s, cur: prev[id] ? prev[id].cur : at(s.line, s.d), props: f.properties }; }).filter(Boolean);
+  const t = performance.now(), prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
+  vehs = fc.features.map((f) => {
+    const id = f.properties.vehicle || f.geometry.coordinates.join(), to = f.geometry.coordinates, p = prev[id];
+    const dur = p ? Math.min(30, Math.max(4, (t - p.t0) / 1e3)) : 0;
+    // glide from the last shown point over the feed's own cadence — but snap (no glide) on first
+    // sight or an implausible jump (gps spike / reacquisition), so a bus never streaks across the map
+    const snap = !p || hav(p.cur, to) > 40 * dur;
+    return { id, from: snap ? to : p.cur, to, t0: t, dur: snap ? 0 : dur, cur: snap ? to.slice() : p.cur, props: f.properties };
+  });
 }
 
 function animate(now) {
-  const dt = Math.min(0.1, (now - vlast) / 1e3); vlast = now;
   setPoints("trams", tramFeatures(), vis("trams"));
   if (vehs.length) setPoints("vehicles", vehs.map((v) => {
-    v.d += v.dir * MPS * dt;
-    if (v.d < 0 || v.d > v.line.total) { v.dir *= -1; v.d = Math.max(0, Math.min(v.line.total, v.d)); }   // bounce at road ends
-    const t = at(v.line, v.d);
-    v.cur[0] += (t[0] - v.cur[0]) * .12; v.cur[1] += (t[1] - v.cur[1]) * .12;   // ease (smooths re-snaps to live fixes)
+    const k = v.dur ? Math.min(1, (now - v.t0) / (v.dur * 1e3)) : 1;
+    v.cur = [v.from[0] + (v.to[0] - v.from[0]) * k, v.from[1] + (v.to[1] - v.from[1]) * k];
     return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles"));
   R.frame(); drawLabels(); requestAnimationFrame(animate);
 }
@@ -233,7 +209,7 @@ function drawLabels() {
 // ─── load everything, build geometry, start ───
 async function layers() {
   const buildingsP = geo("buildings");   // kick off the big (~40 MB) fetch now; fold it last
-  const roads = await geo("roads"); seedRoads(roads); buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  const roads = await geo("roads"); buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
   const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
 
   // line/polygon overlays: [id, colour] — file name is the id; boundary is base, the rest toggle.
