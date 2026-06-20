@@ -70,12 +70,13 @@ Frontend lives in git; **data lives in the `latest-data` GitHub Release** (a `da
 all of `data/`, geojson + terrain). Two workflows:
 - **deploy.yml** (push to main / dispatch) — assembles `_site` = frontend + the release's
   data and publishes it to Pages (live at `ltrg.co.uk/sheffield`).
-- **sync.yml** (cron, daily) — re-fetches the *refreshable* feeds (rivers, air, news,
-  crime, council, planning, trees), re-zips, re-uploads the release, then triggers a redeploy.
-  The heavy static layers (buildings, roads, trams, terrain) carry over from the release
-  untouched — rebuild those locally with `make` + `make lidar` and `gh release upload
-  latest-data data.zip --clobber` when they need refreshing. Live buses aren't in the cron
-  at all (the browser pulls them direct from bustimes.org).
+- **sync.yml** (cron, daily) — re-fetches the *refreshable* feeds (rivers, air, news, reddit,
+  tribune, crime, council, planning, trees), re-zips, re-uploads the release, then triggers a
+  redeploy. Needs `permissions: contents: write` — `read` lets it download the release but the
+  `gh release upload --clobber` 403s without write. The heavy static layers (buildings, roads,
+  trams, terrain) carry over from the release untouched — rebuild those locally with `make` +
+  `make lidar` and `gh release upload latest-data data.zip --clobber` when they need refreshing.
+  Live buses aren't in the cron at all (the browser pulls them direct from bustimes.org).
 
 ## Conventions
 
@@ -109,8 +110,12 @@ all of `data/`, geojson + terrain). Two workflows:
 - **LLM-as-geocoder**: `news.py` turns unstructured RSS headlines into map pins — one `llm()` call
   returns place+lat/lng+category per item when `ANTHROPIC_API_KEY` is set, else a built-in
   neighbourhood gazetteer matches names in the text. Always degrades to valid (possibly empty)
-  geojson; never aborts the run. `reddit.py` reuses that same `GAZ`+`point` (imported from
-  `news`) on r/sheffield posts.
+  geojson; never aborts the run. `reddit.py` and `tribune.py` reuse that same `GAZ`+`point`
+  (imported from `news`) on r/sheffield posts and tribune articles. (No repo secrets are
+  configured, so all three run the gazetteer in CI — set `ANTHROPIC_API_KEY` for richer pins.)
+- **Tribune (no key)**: the ghost content api wants a `TRIBUNE_API_KEY`, but the keyless public
+  rss feed `sheffieldtribune.co.uk/feed` carries the same posts (title/excerpt/link) — `tribune.py`
+  uses the api only if the key is set, else the feed, so it always produces pins without a secret.
 - **Reddit (no key)**: the `.json`/`oauth` endpoints **403 datacenter IPs** (so do `old.reddit`),
   but the plain **atom feed** `reddit.com/r/sheffield/.rss` serves fine — once you ride out
   reddit's burst **429s** (it throttles rapid hits, ~15 s; `reddit.py` passes `tries=6` so
