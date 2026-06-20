@@ -47,12 +47,12 @@ export class Renderer {
     this.pLine = dev.createRenderPipeline({ layout, primitive, vertex: { module: m, entryPoint: "vline",
       buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }] },
       fragment: { module: m, entryPoint: "fsolid", targets } });
-    this.pMark = dev.createRenderPipeline({ layout, primitive, vertex: { module: m, entryPoint: "vmark", buffers: [
+    this.pMark = dev.createRenderPipeline({ layout, primitive: { topology: "triangle-list" }, vertex: { module: m, entryPoint: "vmark", buffers: [
       { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },
       { arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 1, offset: 0, format: "float32x3" }] }] },
       fragment: { module: m, entryPoint: "fsolid", targets } });
-    // a hollow unit diamond (4 segments) billboarded per instance — the marker glyph.
-    const d = new Float32Array([0, 1, 1, 0, 1, 0, 0, -1, 0, -1, -1, 0, -1, 0, 0, 1]);
+    // a filled unit diamond (2 triangles) billboarded per instance — the marker glyph.
+    const d = new Float32Array([0, 1, 1, 0, 0, -1, 0, -1, -1, 0, 0, 1]);
     this.diamond = dev.createBuffer({ size: d.byteLength, usage: GPUBufferUsage.VERTEX, mappedAtCreation: true });
     new Float32Array(this.diamond.getMappedRange()).set(d); this.diamond.unmap();
     this.resize(); new ResizeObserver(() => this.resize()).observe(this.cv); this.controls();
@@ -93,7 +93,7 @@ export class Renderer {
     pass.setPipeline(this.pLine);
     for (const l of this.lines.values()) if (l.vis && l.count) { pass.setBindGroup(1, l.bg); pass.setVertexBuffer(0, l.buf); pass.draw(l.count); }
     pass.setPipeline(this.pMark); pass.setVertexBuffer(0, this.diamond);
-    for (const m of this.marks.values()) if (m.vis && m.count) { pass.setBindGroup(1, m.bg); pass.setVertexBuffer(1, m.inst); pass.draw(8, m.count); }
+    for (const m of this.marks.values()) if (m.vis && m.count) { pass.setBindGroup(1, m.bg); pass.setVertexBuffer(1, m.inst); pass.draw(6, m.count); }
     pass.end(); this.dev.queue.submit([enc.finish()]);
   }
   // nearest visible, pickable marker within ~12px of the cursor, projected on the cpu.
