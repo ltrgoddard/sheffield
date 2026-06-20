@@ -7,7 +7,7 @@ export const BBOX = { w: -1.802, s: 53.304, e: -1.324, n: 53.504 };
 
 // local ea-lidar terrarium tiles (built by fetchers/lidar.py) draped as a wire grid.
 export const TILES = "data/terrain/{z}/{x}/{y}.png";
-export const TERRAIN = { zoom: 14, step: 3, exag: 1.4 }; // grid subsample (px), vertical exaggeration
+export const TERRAIN = { zoom: 14, step: 2, exag: 1.4 }; // grid subsample (px), vertical exaggeration
 
 // data files the fetchers write, with how often the frontend re-reads them (ms; 0 = once).
 export const FEEDS = {
@@ -23,24 +23,28 @@ export const FEEDS = {
   manifest: 6e4,            // per-feed freshness index
 };
 
-// toggleable layers in the panel: id, label, on-by-default.
-export const LAYERS = [
-  ["terrain", "Terrain", true],
-  ["buildings", "Buildings", true],
-  ["roads", "Roads", true],
-  ["trams", "Trams", true],
-  ["stops", "Tram stops", false],
-  ["vehicles", "Live buses", true],
-  ["rivers", "River levels", true],
-  ["air", "Air quality", false],
-  ["cctv", "CCTV cameras", false],
-  ["faults", "Fault reports", false],
-  ["crime", "Crime", false],
-  ["trees", "Trees", false],
-  ["planning", "Development sites", false],
-  ["news", "City news", false],
-  ["wards", "Wards", false],
-  ["clean_air", "Clean air zone", false],
+// toggleable layers, grouped — each group toggles as a whole or per item: [id, label, on?].
+// terrain, buildings and roads are the permanent base map (always on, not listed here).
+export const GROUPS = [
+  ["transport", "transport", [
+    ["trams", "trams", true],
+    ["stops", "tram stops", false],
+    ["vehicles", "live buses", true],
+  ]],
+  ["environment", "environment", [
+    ["rivers", "river levels", true],
+    ["air", "air quality", false],
+    ["trees", "trees", false],
+    ["clean_air", "clean air zone", false],
+  ]],
+  ["events", "events", [
+    ["cctv", "cctv cameras", false],
+    ["faults", "fault reports", false],
+    ["crime", "crime", false],
+    ["planning", "development sites", false],
+    ["news", "city news", false],
+    ["wards", "wards", false],
+  ]],
 ];
 
 // trams have no live avl feed, so we estimate from the published timetable: each directional
