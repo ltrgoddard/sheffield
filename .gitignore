@@ -1,5 +1,6 @@
-# generated lidar terrain tiles (large; build locally via fetchers/lidar.py)
-data/terrain/
+# fetched data lives in the `latest-data` github release, not in git — `make` it
+# locally, or the deploy workflow downloads it into the pages artifact.
+data/
 # browser automation artifacts
 .playwright-mcp/
 __pycache__/

@@ -1,6 +1,6 @@
 // glue: load the open data, fold it into gpu geometry, run the live feeds and the ui.
 // the whole contract is still data/*.geojson — only the renderer changed.
-import { CITY, FEEDS, GROUPS, TRAM } from "./config.js";
+import { CITY, BBOX, FEEDS, GROUPS, TRAM } from "./config.js";
 import { Camera, Terrain, ll2m } from "./proj.js";
 import { Renderer } from "./gpu.js";
 
@@ -11,6 +11,14 @@ const cgeo = async (f) => { const k = "geo:" + f, hit = localStorage[k];
   const live = geo(f).then((d) => { if (d.features.length) localStorage[k] = JSON.stringify(d); return d; });
   return hit ? JSON.parse(hit) : live; };
 const empty = { type: "FeatureCollection", features: [] };
+// live buses come straight from bustimes.org — a cors-enabled, no-key json feed that
+// re-serves the dft bods siri-vm stream. fetched in the browser and mapped to the
+// feature shape the renderer expects, so there's no backend, no api key, no proxy.
+const BUSES = `https://bustimes.org/vehicles.json?xmin=${BBOX.w}&ymin=${BBOX.s}&xmax=${BBOX.e}&ymax=${BBOX.n}`;
+const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() => [])
+  .then((vs) => ({ type: "FeatureCollection", features: (vs || []).map((v) => ({
+    type: "Feature", geometry: { type: "Point", coordinates: v.coordinates },
+    properties: { vehicle: v.id, bearing: v.heading || 0, line: v.service?.line_name || "", operator: v.vehicle?.name || "" } })) }));
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
 const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1];
@@ -227,7 +235,7 @@ function syncLegend() {
 function poll() {
   for (const [f, ms] of Object.entries(FEEDS)) {
     if (!ms) continue;
-    const tick = async () => { const d = await geo(f);
+    const tick = async () => { const d = f === "vehicles" ? await liveBuses() : await geo(f);
       if (f === "vehicles") { onVehicles(d);
         $("#mode").textContent = d.features.length ? `${d.features.length} live buses · trams from timetable` : "trams from timetable";
       } else if (reg[f]) setPoints(f, d.features, vis(f));

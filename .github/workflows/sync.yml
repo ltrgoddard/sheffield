@@ -1,0 +1,55 @@
+name: Refresh data
+
+# re-fetch the feeds that actually change (rivers, air, news, crime, council faults,
+# planning, trees), repackage the data release, and trigger a redeploy. the heavy,
+# static layers (buildings, roads, trams, terrain) are carried over from the existing
+# release untouched — rebuild those locally with `make` + `make lidar` when needed.
+# (live buses aren't here at all: the frontend pulls them straight from bustimes.org.)
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # every 6 hours, off the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Restore existing data
+        run: |
+          gh release download latest-data --pattern data.zip --dir .
+          mkdir -p data && unzip -oq data.zip -d data && rm data.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Fetch the refreshable feeds
+        run: |
+          for f in rivers air news crime council planning trees; do
+            uv run --quiet python fetchers/$f.py 2>&1 | sed "s/^/[$f] /" || true
+          done
+          uv run --quiet python fetchers/manifest.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Repackage and publish the data release
+        run: |
+          (cd data && zip -rq ../data.zip . -x '*.DS_Store')
+          gh release upload latest-data data.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Trigger redeploy
+        run: gh workflow run deploy.yml
+        env:
+          GH_TOKEN: ${{ github.token }}

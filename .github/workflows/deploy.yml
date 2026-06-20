@@ -1,0 +1,40 @@
+name: Deploy to GitHub Pages
+
+# assemble the static site — frontend (in git) + data (from the latest-data release)
+# — and publish it. runs on every push to main and after the sync job refreshes data.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site (frontend + data from release)
+        run: |
+          mkdir -p _site/data
+          cp index.html app.js config.js gpu.js proj.js style.css _site/
+          gh release download latest-data --pattern data.zip --dir .
+          unzip -q data.zip -d _site/data
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

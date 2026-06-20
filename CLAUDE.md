@@ -12,14 +12,17 @@ renderer** on the front; dependency-light Python fetchers on the back. They're d
 files: fetchers write `data/*.geojson`, the frontend polls them. That's the whole contract.
 The whole city is drawn as **1px lines** — terrain as a lifted wire grid, buildings as edge
 wireframes, feeds as billboarded line-markers — straight from open data onto the GPU.
+(One exception to the file contract: **live buses** are fetched in the browser straight from
+bustimes.org — a cors-enabled, no-key json feed — so they're live with no backend at all.)
 
 ```
 index.html  app.js  config.js  style.css   # frontend
 gpu.js      proj.js                         # webgpu device/pipelines + projection/camera/terrain
 fetchers/   common.py + one script per source
-data/       geojson the fetchers write (data/terrain/ = lidar tiles, gitignored)
-Makefile    data orchestration (`make`, `make live`, `make watch`, `make lidar`, `make serve`)
-pyproject.toml  zero-dep uv project   .env  BODS_API_KEY / ANTHROPIC_API_KEY (gitignored)
+data/       geojson the fetchers write (gitignored; lives in the `latest-data` release)
+Makefile    data orchestration (`make`, `make lidar`, `make serve`)
+.github/workflows/  deploy.yml (pages) + sync.yml (cron refresh → release → redeploy)
+pyproject.toml  zero-dep uv project   .env  ANTHROPIC_API_KEY for news llm (gitignored)
 ```
 
 - **config.js** — the only place to tune: `CITY` camera, `BBOX` (the patch we render),
@@ -47,16 +50,28 @@ pyproject.toml  zero-dep uv project   .env  BODS_API_KEY / ANTHROPIC_API_KEY (gi
 ## Running / verifying
 
 ```sh
-make                 # refresh every feed (snapshot is committed so it works immediately)
+make                 # fetch every feed into data/ (gitignored; not committed)
 make serve           # http://localhost:8000
 make lidar           # stream EA lidar → data/terrain over the full boundary (no key, ~5 min)
-cp .env.example .env && $EDITOR .env   # add BODS_API_KEY (real buses) + ANTHROPIC_API_KEY (news llm)
-make watch           # loop the live buses every 15s once BODS_API_KEY is set
+cp .env.example .env && $EDITOR .env   # optional ANTHROPIC_API_KEY (news llm; else gazetteer)
 ```
 
 Verify visually with headless Playwright — it ships a real WebGPU adapter; `window.R`
 exposes the renderer (`R.lines`/`R.marks` counts, `R.pick(x,y)`) and `window.cam` the camera.
 Terrain + 12k building wireframes decode in the first second — wait before judging.
+
+## Deployment — GitHub Pages, no server
+
+Frontend lives in git; **data lives in the `latest-data` GitHub Release** (a `data.zip` of
+all of `data/`, geojson + terrain). Two workflows:
+- **deploy.yml** (push to main / dispatch) — assembles `_site` = frontend + the release's
+  data and publishes it to Pages (live at `ltrg.co.uk/sheffield`).
+- **sync.yml** (cron, every 6 h) — re-fetches the *refreshable* feeds (rivers, air, news,
+  crime, council, planning, trees), re-zips, re-uploads the release, then triggers a redeploy.
+  The heavy static layers (buildings, roads, trams, terrain) carry over from the release
+  untouched — rebuild those locally with `make` + `make lidar` and `gh release upload
+  latest-data data.zip --clobber` when they need refreshing. Live buses aren't in the cron
+  at all (the browser pulls them direct from bustimes.org).
 
 ## Conventions
 
@@ -97,6 +112,11 @@ Terrain + 12k building wireframes decode in the first second — wait before jud
 - **Terrarium encoding**: `height = R*256 + G + B/256 - 32768`. `Terrain` in proj.js fetches
   every local `data/terrain/` tile intersecting `BBOX` at `TERRAIN.zoom`, decodes via
   `OffscreenCanvas`, and is silent (flat, no wire grid) if none are present — run lidar.py.
+- **Live buses, no key, no backend**: bustimes.org's `/vehicles.json?xmin&ymin&xmax&ymax`
+  re-serves the DfT BODS SIRI-VM stream as plain json **with `access-control-allow-origin: *`**,
+  so `app.js` (`liveBuses()`) fetches it straight from the browser and maps each record to the
+  feature shape `onVehicles()` expects (`coordinates`/`heading`/`service.line_name`). This
+  replaced the old BODS-key fetcher + the need for any proxy/Worker.
 - **Trams are timetable-estimated** (along real OSM geometry) — Supertram has *no* public live
   vehicle feed: not BODS (buses-only — verified: zero tram operators in the live snapshot), and
   the only live signal (departure boards via TSY/livetrams) is bot-walled or broken. So `TRAM`

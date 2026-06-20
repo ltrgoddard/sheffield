@@ -8,26 +8,35 @@ wireframes, feeds as billboarded markers — straight from open data onto the GP
 Trams glide around the real network; live buses ride the real roads.
 
 
+Live at ltrg.co.uk/sheffield
+
+
 Running it
 
-    make          pull fresh data into data/*.geojson  (a snapshot is committed,
-                  so it works straight away)
+    make          fetch every feed into data/  (gitignored — not committed)
     make serve    static server -> http://localhost:8000
+    make lidar    stream EA LIDAR for Sheffield into data/terrain/ (needs gdal,
+                  ~5 min; until then terrain falls back to a global DEM)
 
 No build step, no framework, no map library, no CDN. The frontend is plain ES
 modules driving a custom WebGPU renderer; the backend is dependency-light Python
 run under uv (which just pins the interpreter — zero pip deps). The two sides are
 decoupled by files: the fetchers write data/*.geojson, the frontend polls them.
-That file contract is the whole interface.
+That file contract is the whole interface — with one exception: live buses are
+pulled straight from bustimes.org in the browser (a CORS-enabled, no-key feed),
+so they're real-time with no backend, no key and no proxy.
 
-Optional keys (cp .env.example .env):
-    BODS_API_KEY        real-time buses from the DfT Bus Open Data Service
+Optional key (cp .env.example .env):
     ANTHROPIC_API_KEY   LLM geocoding of city-news headlines (falls back to a
                         built-in gazetteer without it)
 
-    make watch    loop the live buses every 15s once BODS_API_KEY is set
-    make lidar    stream EA LIDAR for Sheffield into data/terrain/ (needs gdal,
-                  ~5 min; until then terrain falls back to a global DEM)
+
+Deployment
+
+GitHub Pages, no server. The frontend lives in git; the data lives in the
+"latest-data" GitHub Release (a data.zip of all of data/). A deploy workflow
+assembles frontend + data into the Pages site; a sync workflow re-fetches the
+feeds that change every few hours, refreshes the release, and redeploys.
 
 
 What you're looking at
