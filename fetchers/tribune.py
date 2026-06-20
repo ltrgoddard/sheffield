@@ -7,7 +7,7 @@ map, keeping the link + summary for the tooltip. not just hard news: house of
 the week, events listings and culture get pinned too, wherever the text names a
 sheffield place. degrades to valid (possibly empty) geojson; never aborts.
 """
-import os, json
+import os, json, re, html, xml.etree.ElementTree as ET
 from common import fetch, fc, write, log
 from news import via_llm, via_gazetteer
 
@@ -15,14 +15,19 @@ SITE = "https://www.sheffieldtribune.co.uk"
 
 
 def items():
-    """(title, summary, link) for the latest ghost posts."""
+    """latest tribune posts as (title, summary, link). ghost content api when a
+    TRIBUNE_API_KEY is set (cleaner editor excerpts), else the keyless public rss
+    feed — same ghost content, no secret required, so this always runs."""
     key = os.environ.get("TRIBUNE_API_KEY")
-    if not key:
-        raise RuntimeError("TRIBUNE_API_KEY not set")
-    url = (f"{SITE}/ghost/api/content/posts/?key={key}&limit=40&order=published_at%20desc"
-           "&fields=title,url,excerpt,custom_excerpt")
-    posts = json.loads(fetch(url, headers={"Accept-Version": "v5.0"}))["posts"]
-    return [(p["title"], (p.get("custom_excerpt") or p.get("excerpt") or "")[:300], p["url"]) for p in posts]
+    if key:
+        url = (f"{SITE}/ghost/api/content/posts/?key={key}&limit=40&order=published_at%20desc"
+               "&fields=title,url,excerpt,custom_excerpt")
+        posts = json.loads(fetch(url, headers={"Accept-Version": "v5.0"}))["posts"]
+        return [(p["title"], (p.get("custom_excerpt") or p.get("excerpt") or "")[:300], p["url"]) for p in posts]
+    root = ET.fromstring(fetch(f"{SITE}/feed", headers={"User-Agent": "Mozilla/5.0"}))
+    g = lambda it, t: html.unescape((it.findtext(t) or "").strip())
+    return [(g(it, "title"), re.sub("<[^>]+>", "", g(it, "description"))[:300], g(it, "link"))
+            for it in root.iter("item") if g(it, "title")][:40]
 
 
 if __name__ == "__main__":
