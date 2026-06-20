@@ -241,17 +241,17 @@ const set = (id, s) => { s ? on.add(id) : on.delete(id);
 const grpItems = (gid) => GROUPS.find((g) => g[0] === gid)[2];
 function buildUI() {
   $("#toggles").innerHTML = GROUPS.map(([gid, glabel, items]) =>
-    `<div class="grp collapsed" data-grp="${gid}"><div class="gh">${glabel}<span class="tk"></span></div>` +
+    `<div class="grp collapsed" data-grp="${gid}"><div class="gh"><i class="cv"></i>${glabel}<span class="tk"></span></div>` +
     items.map(([id, label]) => `<div class="row ${vis(id) ? "on" : ""}" data-id="${id}">${label}<span class="tk"></span></div>`).join("") + `</div>`).join("");
-  // sub-item: dot only enables (text-click does nothing)
-  $("#toggles").querySelectorAll(".row .tk").forEach((tk) => tk.onclick = () => {
-    const id = tk.parentElement.dataset.id; set(id, !on.has(id)); sync(); });
-  // group header: text-click expands/collapses, dot-click toggles every item
+  // sub-item: clicking the row enables/disables it
+  $("#toggles").querySelectorAll(".row").forEach((row) => row.onclick = () => {
+    set(row.dataset.id, !on.has(row.dataset.id)); sync(); });
+  // group header: clicking toggles every item; only the chevron expands/collapses
   $("#toggles").querySelectorAll(".grp").forEach((grp) => {
-    grp.querySelector(".gh").onclick = () => grp.classList.toggle("collapsed");
-    grp.querySelector(".gh .tk").onclick = (e) => { e.stopPropagation();
+    grp.querySelector(".gh").onclick = () => {
       const items = grpItems(grp.dataset.grp), s = !items.every((i) => vis(i[0]));
       items.forEach((i) => set(i[0], s)); sync(); };
+    grp.querySelector(".cv").onclick = (e) => { e.stopPropagation(); grp.classList.toggle("collapsed"); };
   });
   sync();
 }

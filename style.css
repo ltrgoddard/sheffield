@@ -30,10 +30,11 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 .grp:first-child { margin-top: 0; }
 .grp.collapsed .row { display: none; }
 .gh { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: lowercase; color: var(--dim2); user-select: none; transition: color .15s; }
-.gh::before { content: ""; width: 4px; height: 4px; flex: none; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform .2s; margin: -2px 1px 0; }
-.grp.collapsed .gh::before { transform: rotate(-45deg); }
+.gh .cv { flex: none; display: flex; align-items: center; cursor: pointer; padding: 6px; margin: -6px -2px -6px -6px; }
+.gh .cv::before { content: ""; width: 4px; height: 4px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform .2s; }
+.grp.collapsed .gh .cv::before { transform: rotate(-45deg); }
 .gh.on, .gh:hover { color: var(--text); }
-.row { display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 13px; cursor: default; font-size: 12px; font-weight: 400; color: var(--dim2); user-select: none; transition: color .15s; }
+.row { display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 13px; cursor: pointer; font-size: 12px; font-weight: 400; color: var(--dim2); user-select: none; transition: color .15s; }
 .row.on, .row:hover { color: var(--text); }
 .gh .tk, .row .tk { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; border: 1px solid currentColor; flex: none; transition: background .2s; cursor: pointer; }
 .gh.on .tk, .row.on .tk { background: var(--text); border-color: var(--text); }
