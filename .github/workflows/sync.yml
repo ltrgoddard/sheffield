@@ -7,7 +7,7 @@ name: Refresh data
 # (live buses aren't here at all: the frontend pulls them straight from bustimes.org.)
 on:
   schedule:
-    - cron: '17 */6 * * *'   # every 6 hours, off the hour
+    - cron: '17 4 * * *'   # daily at 04:17 utc
   workflow_dispatch:
 
 permissions:
