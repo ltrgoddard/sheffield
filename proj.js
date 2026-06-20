@@ -56,10 +56,11 @@ export class Terrain {
       const cv = new OffscreenCanvas(256, 256), cx = cv.getContext("2d");
       cx.drawImage(await createImageBitmap(await r.blob()), 0, 0);
       const d = cx.getImageData(0, 0, 256, 256).data, h = new Float32Array(65536);
-      // terrarium nodata (black pixels) decodes to -32768 m; flag it NaN so coverage
-      // edges stop cleanly instead of projecting sheets down to the earth's core.
+      // gdal2tiles flags nodata via alpha=0 but leaves the rgb filled with black or
+      // white garbage (±32768 m spikes); honour the mask, and NaN any wild value, so
+      // coverage edges stop cleanly instead of spiking to the earth's core or sky.
       for (let i = 0; i < 65536; i++) { const r = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
-        h[i] = r < -1000 ? NaN : r * TERRAIN.exag; }
+        h[i] = d[i * 4 + 3] < 128 || r < -1000 || r > 2000 ? NaN : r * TERRAIN.exag; }
       this.t.set(x + "/" + y, h);
     } catch {}
   }

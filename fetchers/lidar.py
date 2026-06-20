@@ -56,16 +56,21 @@ def tile(tifs):
     vrt, merc = tmp / "src.vrt", tmp / "merc.tif"
     run("gdalbuildvrt", "-q", vrt, *tifs)
     run("gdalwarp", "-q", "-t_srs", "EPSG:3857", "-r", "bilinear", "-dstnodata", "0", vrt, merc)
+    # nodata warps to 0; mask those pixels to black (0,0,0) so the frontend's
+    # terrarium decoder reads them as nodata and trims coverage edges, instead of
+    # planting a 0 m cliff the tiler then blends into spikes.
     bands = {}
-    for ch, calc in (("R", "floor((A+32768)/256)"),
-                     ("G", "numpy.mod(numpy.floor(A+32768),256)"),
-                     ("B", "floor((A+32768-numpy.floor(A+32768))*256)")):
+    for ch, calc in (("R", "(A!=0)*floor((A+32768)/256)"),
+                     ("G", "(A!=0)*numpy.mod(numpy.floor(A+32768),256)"),
+                     ("B", "(A!=0)*floor((A+32768-numpy.floor(A+32768))*256)")):
         bands[ch] = tmp / f"{ch}.tif"
         run("gdal_calc.py", "-A", merc, f"--outfile={bands[ch]}", f"--calc={calc}", "--type=Byte", "--quiet")
     rgb = tmp / "terrarium.vrt"
     run("gdalbuildvrt", "-q", "-separate", rgb, bands["R"], bands["G"], bands["B"])
     out = DATA / "terrain"; shutil.rmtree(out, ignore_errors=True)
-    run("gdal2tiles.py", "--xyz", "-p", "mercator", "-z", ZOOM, "-w", "none", "--processes", "4", "-q", rgb, out)
+    # nearest only: terrarium rgb is wildly non-linear (1 unit of R = 256 m), so any
+    # averaging/bilinear blend at tile or overview level throws pixels ±256 m — the spikes.
+    run("gdal2tiles.py", "--xyz", "-p", "mercator", "-r", "near", "-z", ZOOM, "-w", "none", "--processes", "4", "-q", rgb, out)
     shutil.rmtree(tmp, ignore_errors=True)
     log(f"terrain tiles → {out}")
 
