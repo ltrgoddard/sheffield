@@ -138,7 +138,7 @@ export class Renderer {
       } else { c.az -= dx * 0.004; c.pitch = Math.max(0.08, Math.min(1.45, c.pitch - dy * 0.004)); }
     };
     cv.onwheel = (e) => { e.preventDefault(); const c = this.cam,
-      f = Math.max(200, Math.min(40000, c.dist * Math.exp(e.deltaY * 0.0012))) / c.dist,
+      f = Math.max(200, Math.min(40000, c.dist * Math.exp(e.deltaY * 0.003))) / c.dist,
       g = c.ground(e.clientX / cv.clientWidth * 2 - 1, 1 - e.clientY / cv.clientHeight * 2, cv.clientWidth / cv.clientHeight);
       c.target[0] += (1 - f) * (g[0] - c.target[0]); c.target[1] += (1 - f) * (g[1] - c.target[1]); c.dist *= f; };
   }
