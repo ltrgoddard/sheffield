@@ -54,9 +54,9 @@ function lineWire(fc) {
 // ─── point feeds: one style table, a feature registry backing picking + popups ───
 const reg = {};
 const PT = {
-  crime: [[1, 0, 0, 1], 4], faults: [[1, .5, 0, 1], 4], cctv: [[1, 0, 1, 1], 4],
+  crime: [[1, 0, 0, 1], 4], faults: [[1, .5, 0, 1], 4], cctv: [[.6, 0, 1, 1], 4],
   stops: [WHITE, 3], trees: [[0, 1, 0, 1], 2.5], air: [[0, 1, 1, 1], 5],
-  news: [[1, 1, 0, 1], 6], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [WHITE, 4],
+  news: [[1, 1, 0, 1], 6], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [[1, 0, 1, 1], 4],
 };
 function setPoints(id, features, vis) {
   const a = new Float32Array(features.length * 3);
