@@ -1,0 +1,72 @@
+Sheffield — a living model
+
+A full-screen, pan-and-zoom 3D model of Sheffield that fuses Environment Agency
+LIDAR terrain with OpenStreetMap buildings and a handful of live, primary-source
+open-data feeds. Understated, a little SimCity: the whole city is drawn as 1px
+white hairlines on black — terrain as a lifted wire grid, buildings as edge
+wireframes, feeds as billboarded markers — straight from open data onto the GPU.
+Trams glide around the real network; live buses ride the real roads.
+
+
+Running it
+
+    make          pull fresh data into data/*.geojson  (a snapshot is committed,
+                  so it works straight away)
+    make serve    static server -> http://localhost:8000
+
+No build step, no framework, no map library, no CDN. The frontend is plain ES
+modules driving a custom WebGPU renderer; the backend is dependency-light Python
+run under uv (which just pins the interpreter — zero pip deps). The two sides are
+decoupled by files: the fetchers write data/*.geojson, the frontend polls them.
+That file contract is the whole interface.
+
+Optional keys (cp .env.example .env):
+    BODS_API_KEY        real-time buses from the DfT Bus Open Data Service
+    ANTHROPIC_API_KEY   LLM geocoding of city-news headlines (falls back to a
+                        built-in gazetteer without it)
+
+    make watch    loop the live buses every 15s once BODS_API_KEY is set
+    make lidar    stream EA LIDAR for Sheffield into data/terrain/ (needs gdal,
+                  ~5 min; until then terrain falls back to a global DEM)
+
+
+What you're looking at
+
+    Terrain        Sheffield's real hills from EA LIDAR, draped as a wire grid.
+    Buildings      OSM footprints + heights extruded into see-through wireframes.
+    Trams          every Supertram line along real OSM geometry. Supertram has no
+                   live vehicle feed, so trams are estimated from the published
+                   timetable — real headways and speeds within service hours.
+                   Honest and deterministic; the status bar says so.
+    Live buses     DfT Bus Open Data (SIRI-VM), smoothly interpolated along roads.
+    Rivers         every EA level gauge within 15km, latest reading + flood ratio.
+    Air quality    a pollution field grid-sampled from Open-Meteo (built, not found).
+    Open data      crime, council fault reports, CCTV, trees, development sites,
+                   geolocated news, wards, the Clean Air Zone — each a toggle.
+
+
+Data sources — all primary, no aggregators
+
+    Trams, buildings, roads, trees   OpenStreetMap (Overpass)          no key
+    Street crime                     data.police.uk (Home Office)      no key
+    CCTV, faults, wards, CAZ         Sheffield City Council ArcGIS     no key
+    Live bus positions               DfT Bus Open Data (SIRI-VM)       key
+    River levels                     EA flood-monitoring               no key
+    Air quality                      Open-Meteo (grid-sampled)         no key
+    Development sites                SCC ArcGIS (brownfield + HELAA)   no key
+    City news (geolocated)           BBC / The Star RSS + LLM          optional
+    Terrain                          EA LIDAR Composite DTM 1m (WCS)   no key
+
+
+Layout
+
+    index.html  app.js  config.js  style.css   frontend
+    gpu.js  proj.js                             webgpu device/pipelines, projection,
+                                                camera, terrain
+    fetchers/                                   one robust script per data source
+    data/                                       geojson the fetchers write
+                                                (terrain/ is gitignored)
+    Makefile  pyproject.toml  .env.example      uv-run data orchestration
+
+config.js is the only place to tune: camera, the rendered bbox, terrain params,
+the feed poll intervals, and the layer toggles. Touch it before the JS.
