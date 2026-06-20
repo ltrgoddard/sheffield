@@ -10,11 +10,14 @@ struct Style { color: vec4f, size: f32 };
 
 @vertex fn vline(@location(0) p: vec3f) -> @builtin(position) vec4f { return cam.vp * vec4f(p, 1.0); }
 
-@vertex fn vmark(@location(0) off: vec2f, @location(1) c: vec3f) -> @builtin(position) vec4f {
+struct MOut { @builtin(position) pos: vec4f, @location(0) col: vec4f };
+@vertex fn vmark(@location(0) off: vec2f, @location(1) c: vec3f, @location(2) col: vec4f) -> MOut {
   let clip = cam.vp * vec4f(c, 1.0);
-  return vec4f(clip.xy + off * st.size / cam.vps * clip.w * 2.0, clip.zw);
+  return MOut(vec4f(clip.xy + off * st.size / cam.vps * clip.w * 2.0, clip.zw),
+              select(st.color, col, col.a > 0.0));   // per-instance colour when given (a>0), else the layer style
 }
-@fragment fn fsolid() -> @location(0) vec4f { return st.color; }`;
+@fragment fn fsolid() -> @location(0) vec4f { return st.color; }
+@fragment fn fmark(@location(0) col: vec4f) -> @location(0) vec4f { return col; }`;
 
 // project a world point through the current view-proj to css pixels (for picking).
 const project = (m, x, y, z, w, h) => {
@@ -49,8 +52,9 @@ export class Renderer {
       fragment: { module: m, entryPoint: "fsolid", targets } });
     this.pMark = dev.createRenderPipeline({ layout, primitive: { topology: "triangle-list" }, vertex: { module: m, entryPoint: "vmark", buffers: [
       { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },
-      { arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 1, offset: 0, format: "float32x3" }] }] },
-      fragment: { module: m, entryPoint: "fsolid", targets } });
+      { arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 1, offset: 0, format: "float32x3" }] },
+      { arrayStride: 16, stepMode: "instance", attributes: [{ shaderLocation: 2, offset: 0, format: "float32x4" }] }] },
+      fragment: { module: m, entryPoint: "fmark", targets } });
     // a filled unit diamond (2 triangles) billboarded per instance — the marker glyph.
     const d = new Float32Array([0, 1, 1, 0, 0, -1, 0, -1, -1, 0, 0, 1]);
     this.diamond = dev.createBuffer({ size: d.byteLength, usage: GPUBufferUsage.VERTEX, mappedAtCreation: true });
@@ -71,13 +75,16 @@ export class Renderer {
     this.lines.set(id, { buf: b, count: pos.length / 3, bg: this.style(color, 0), vis });
   }
   // markers rebuild cheaply each frame for the live feeds; reuse the buffer when the count holds.
-  setMark(id, xyz, color, size, vis, pick) {
+  // cols (optional): per-instance rgba (4/inst); zero-alpha entries fall back to the layer colour.
+  setMark(id, xyz, color, size, vis, pick, cols) {
+    const n = xyz.length / 3, col = cols || new Float32Array(n * 4);
     const e = this.marks.get(id);
-    if (e && e.count === xyz.length / 3) { if (xyz.length) this.dev.queue.writeBuffer(e.inst, 0, xyz); e.cpu = xyz; e.vis = vis; return; }
-    e?.inst.destroy();
+    if (e && e.count === n) { if (n) { this.dev.queue.writeBuffer(e.inst, 0, xyz); this.dev.queue.writeBuffer(e.col, 0, col); } e.cpu = xyz; e.vis = vis; return; }
+    e?.inst.destroy(); e?.col.destroy();
     const inst = this.dev.createBuffer({ size: Math.max(12, xyz.byteLength), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    if (xyz.length) this.dev.queue.writeBuffer(inst, 0, xyz);
-    this.marks.set(id, { inst, count: xyz.length / 3, cpu: xyz, bg: this.style(color, size * this.dpr), vis, pick });
+    const cb = this.dev.createBuffer({ size: Math.max(16, col.byteLength), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    if (n) { this.dev.queue.writeBuffer(inst, 0, xyz); this.dev.queue.writeBuffer(cb, 0, col); }
+    this.marks.set(id, { inst, col: cb, count: n, cpu: xyz, bg: this.style(color, size * this.dpr), vis, pick });
   }
   setVisible(id, on) { const e = this.lines.get(id) || this.marks.get(id); if (e) e.vis = on; }
   // world point → css pixels through the current view-proj (null if behind), for the label overlay.
@@ -95,7 +102,7 @@ export class Renderer {
     pass.setPipeline(this.pLine);
     for (const l of this.lines.values()) if (l.vis && l.count) { pass.setBindGroup(1, l.bg); pass.setVertexBuffer(0, l.buf); pass.draw(l.count); }
     pass.setPipeline(this.pMark); pass.setVertexBuffer(0, this.diamond);
-    for (const m of this.marks.values()) if (m.vis && m.count) { pass.setBindGroup(1, m.bg); pass.setVertexBuffer(1, m.inst); pass.draw(6, m.count); }
+    for (const m of this.marks.values()) if (m.vis && m.count) { pass.setBindGroup(1, m.bg); pass.setVertexBuffer(1, m.inst); pass.setVertexBuffer(2, m.col); pass.draw(6, m.count); }
     pass.end(); this.dev.queue.submit([enc.finish()]);
   }
   // nearest visible, pickable marker within ~12px of the cursor, projected on the cpu.
