@@ -28,6 +28,12 @@ export class Camera {
     return [this.target[0] + h * Math.sin(this.az), this.target[1] - h * Math.cos(this.az),
       this.target[2] + this.dist * Math.cos(this.pitch)]; }
   vp(asp) { return mul(persp(this.fov * D, asp, 1, 1e5), lookAt(this.eye(), this.target, [0, 0, 1])); }
+  // world x/y where the cursor ray (ndc nx,ny) meets the target's ground plane — for zoom-to-cursor.
+  ground(nx, ny, asp) { const e = this.eye(), z = norm(sub(e, this.target)), x = norm(cross([0, 0, 1], z)),
+    y = cross(z, x), t = Math.tan(this.fov * D / 2),
+    d = [nx * t * asp * x[0] + ny * t * y[0] - z[0], nx * t * asp * x[1] + ny * t * y[1] - z[1], nx * t * asp * x[2] + ny * t * y[2] - z[2]],
+    s = (this.target[2] - e[2]) / d[2];
+    return [e[0] + s * d[0], e[1] + s * d[1]]; }
 }
 
 const N = (z) => 2 ** z;
@@ -50,7 +56,10 @@ export class Terrain {
       const cv = new OffscreenCanvas(256, 256), cx = cv.getContext("2d");
       cx.drawImage(await createImageBitmap(await r.blob()), 0, 0);
       const d = cx.getImageData(0, 0, 256, 256).data, h = new Float32Array(65536);
-      for (let i = 0; i < 65536; i++) h[i] = (d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768) * TERRAIN.exag;
+      // terrarium nodata (black pixels) decodes to -32768 m; flag it NaN so coverage
+      // edges stop cleanly instead of projecting sheets down to the earth's core.
+      for (let i = 0; i < 65536; i++) { const r = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+        h[i] = r < -1000 ? NaN : r * TERRAIN.exag; }
       this.t.set(x + "/" + y, h);
     } catch {}
   }
@@ -60,7 +69,8 @@ export class Terrain {
     const h = this.t.get(tx + "/" + ty); if (!h) return 0;
     const px = (fx - tx) * 256, py = (fy - ty) * 256, x0 = Math.min(254, px | 0), y0 = Math.min(254, py | 0),
       dx = px - x0, dy = py - y0, i = y0 * 256 + x0;
-    return (h[i] * (1 - dx) + h[i + 1] * dx) * (1 - dy) + (h[i + 256] * (1 - dx) + h[i + 257] * dx) * dy;
+    const e = (h[i] * (1 - dx) + h[i + 1] * dx) * (1 - dy) + (h[i + 256] * (1 - dx) + h[i + 257] * dx) * dy;
+    return isFinite(e) ? e : 0;  // nodata corners → sit draped geometry flat, not in the void
   }
   // the topographic wireframe: a lifted grid of line segments over every loaded tile.
   wire() {
@@ -71,7 +81,8 @@ export class Terrain {
     for (const k of this.t.keys()) { const [tx, ty] = k.split("/").map(Number), h = this.t.get(k);
       for (let j = 0; j < 256 - s; j += s) for (let i = 0; i < 256 - s; i += s) {
         const p = node(h, tx, ty, i, j), a = node(h, tx, ty, i + s, j), b = node(h, tx, ty, i, j + s);
-        pos.push(p[0], p[1], p[2], a[0], a[1], a[2], p[0], p[1], p[2], b[0], b[1], b[2]);
+        if (isFinite(p[2]) && isFinite(a[2])) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
+        if (isFinite(p[2]) && isFinite(b[2])) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
       } }
     return new Float32Array(pos);
   }
