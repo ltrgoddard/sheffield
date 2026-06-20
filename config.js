@@ -32,7 +32,7 @@ export const GROUPS = [
     ["vehicles", "live buses", true],
   ]],
   ["environment", "environment", [
-    ["rivers", "river levels", true],
+    ["rivers", "river levels", false],
     ["air", "air quality", false],
     ["trees", "trees", false],
     ["clean_air", "clean air zone", false],
