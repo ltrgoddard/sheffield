@@ -1,14 +1,14 @@
 """building footprints + heights from openstreetmap (overpass), the geometry the
 gpu renderer extrudes into wireframes. primary source, no aggregator, no key.
 
-covers the same central box the frontend draws (config.js BBOX). heights come from
+covers the same box the frontend draws (config.js BBOX). heights come from
 the `height` tag, else `building:levels`×3, else a sensible default.
 """
 from common import overpass, fc, write, log
 
-# central sheffield — keep in step with BBOX in config.js (s, w, n, e).
-S, W, N, E = 53.363, -1.502, 53.397, -1.432
-Q = f"""[out:json][timeout:180];
+# sheffield's full administrative boundary bbox — keep in step with BBOX in config.js (s, w, n, e).
+S, W, N, E = 53.304, -1.802, 53.504, -1.324
+Q = f"""[out:json][timeout:300];
 (way["building"]({S},{W},{N},{E});
  relation["building"]["type"="multipolygon"]({S},{W},{N},{E}););
 out geom;"""

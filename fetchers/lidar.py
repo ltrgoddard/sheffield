@@ -8,10 +8,10 @@ terrarium-encodes the elevation and slices xyz tiles into data/terrain/. the
 frontend auto-detects that folder and renders sheffield's real hills beneath the
 osm buildings.
 
-    python3 fetchers/lidar.py                 # stream ea lidar for sheffield
-    python3 fetchers/lidar.py ~/dsm/*.tif     # or process geotiffs you supply
+    make lidar                                # stream ea lidar for sheffield
+    uv run python fetchers/lidar.py ~/dsm/*.tif   # or process geotiffs you supply
 
-requires gdal + numpy (`brew install gdal && pip install numpy`).
+requires gdal (`brew install gdal`); the gdal cli tools are shelled out to.
 """
 import sys, subprocess, tempfile, pathlib, shutil
 from common import fetch, log
@@ -19,8 +19,8 @@ from common import fetch, log
 DATA = pathlib.Path(__file__).resolve().parent.parent / "data"
 WCS = "https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs"
 CID = "13787b9a-26a4-4775-8523-806d13af58fc__Lidar_Composite_Elevation_DTM_1m"
-# sheffield, british national grid (epsg:27700) metres: ~17 km × 16 km
-E0, E1, N0, N1 = 427000, 444000, 381000, 397000
+# sheffield's full administrative boundary, british national grid (epsg:27700) metres: ~32 km × 23 km
+E0, E1, N0, N1 = 413000, 445000, 378000, 401000
 BLOCK, RES = 5000, 5  # fetch 5 km blocks at 5 m — plenty for web terrain
 ZOOM = "10-14"
 

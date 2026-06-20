@@ -1,6 +1,6 @@
 """publish data/manifest.json — a freshness index over every feed.
 
-run last by fetch.sh. scans the geojson files and records, per feed, its feature
+run last by the makefile's `data` target. scans the geojson files and records, per feed, its feature
 count, size and age in seconds, so the frontend can show honest "updated 12s ago"
 status and ops can spot a stale or empty feed at a glance. derived purely from the
 files on disk, so it never races the parallel fetchers that produce them.

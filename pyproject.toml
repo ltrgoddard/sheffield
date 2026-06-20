@@ -1,0 +1,6 @@
+[project]
+name = "sheffield-fetchers"
+version = "0"
+description = "zero-dependency open-data fetchers for the sheffield 3d model"
+requires-python = ">=3.9"
+dependencies = []  # all stdlib; lidar.py shells out to the system gdal cli tools

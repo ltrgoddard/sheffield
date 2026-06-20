@@ -18,8 +18,8 @@ index.html  app.js  config.js  style.css   # frontend
 gpu.js      proj.js                         # webgpu device/pipelines + projection/camera/terrain
 fetchers/   common.py + one script per source
 data/       geojson the fetchers write (data/terrain/ = lidar tiles, gitignored)
-fetch.sh    transit + all live feeds      live.sh   loop the fast feeds (buses)
-serve.sh    static server                 lidar.py  see below
+Makefile    data orchestration (`make`, `make live`, `make watch`, `make lidar`, `make serve`)
+pyproject.toml  zero-dep uv project   .env  BODS_API_KEY / ANTHROPIC_API_KEY (gitignored)
 ```
 
 - **config.js** — the only place to tune: `CITY` camera, `BBOX` (the patch we render),
@@ -39,18 +39,19 @@ serve.sh    static server                 lidar.py  see below
   bytes body for JSON POSTs), `overpass`, `arcgis` (paged geojson), `llm` (zero-dep
   Anthropic call, gated on `ANTHROPIC_API_KEY`), `write` (**atomic** temp-then-rename so
   the poller never sees a half file). Everything writes compact EPSG:4326 geojson.
-- **fetch.sh** runs every fetcher **in parallel** (independent; one failing never aborts the
-  rest) then `manifest.py`, which writes `data/manifest.json` — a per-feed freshness index
-  (feature count, size, age) for the frontend status and ops.
+- **Makefile** runs every fetcher under `uv` **in parallel** (`make` = `-j 8`; each independent,
+  one failing never aborts the rest) then `manifest.py`, which writes `data/manifest.json` — a
+  per-feed freshness index (feature count, size, age) for the frontend status and ops. Python is
+  pure-stdlib so `uv` just pins the interpreter; secrets load from `.env`.
 
 ## Running / verifying
 
 ```sh
-./fetch.sh            # refresh data (snapshot is committed so it works immediately)
-./serve.sh            # http://localhost:8000
-python3 fetchers/lidar.py     # stream EA lidar → data/terrain (no key, ~3 min)
-export BODS_API_KEY=… && ./live.sh   # real live buses, refreshed every 15s
-export ANTHROPIC_API_KEY=…           # enable llm geolocation of news (else gazetteer fallback)
+make                 # refresh every feed (snapshot is committed so it works immediately)
+make serve           # http://localhost:8000
+make lidar           # stream EA lidar → data/terrain over the full boundary (no key, ~5 min)
+cp .env.example .env && $EDITOR .env   # add BODS_API_KEY (real buses) + ANTHROPIC_API_KEY (news llm)
+make watch           # loop the live buses every 15s once BODS_API_KEY is set
 ```
 
 Verify visually with headless Playwright — it ships a real WebGPU adapter; `window.R`
