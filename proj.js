@@ -78,6 +78,7 @@ export class Terrain {
   // (no terrain loaded → don't clip at all, so the flat fallback still draws everything.)
   covers(lng, lat) {
     if (!this.ok) return true;
+    if (lng < BBOX.w || lng > BBOX.e || lat < BBOX.s || lat > BBOX.n) return false;  // tiles overhang bbox; pin the extent to it so terrain & osm share it
     const z = this.z, fx = lon2x(lng, z), fy = lat2y(lat, z), h = this.t.get((fx | 0) + "/" + (fy | 0));
     return !!h && isFinite(h[Math.min(255, (fy - (fy | 0)) * 256 | 0) * 256 + Math.min(255, (fx - (fx | 0)) * 256 | 0)]);
   }
@@ -86,12 +87,12 @@ export class Terrain {
     const z = this.z, s = TERRAIN.step, pos = [];
     const node = (h, tx, ty, i, j) => { const lng = (tx + i / 256) / N(z) * 360 - 180,
       lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + j / 256) / N(z)))) / D, [x, y] = ll2m(lng, lat);
-      return [x, y, h[j * 256 + i]]; };
+      return [x, y, h[j * 256 + i], lng >= BBOX.w && lng <= BBOX.e && lat >= BBOX.s && lat <= BBOX.n]; };  // 4th: inside bbox (tiles overhang it)
     for (const k of this.t.keys()) { const [tx, ty] = k.split("/").map(Number), h = this.t.get(k);
       for (let j = 0; j < 256 - s; j += s) for (let i = 0; i < 256 - s; i += s) {
         const p = node(h, tx, ty, i, j), a = node(h, tx, ty, i + s, j), b = node(h, tx, ty, i, j + s);
-        if (isFinite(p[2]) && isFinite(a[2])) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
-        if (isFinite(p[2]) && isFinite(b[2])) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
+        if (isFinite(p[2]) && isFinite(a[2]) && p[3] && a[3]) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
+        if (isFinite(p[2]) && isFinite(b[2]) && p[3] && b[3]) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
       } }
     return new Float32Array(pos);
   }
