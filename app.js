@@ -32,6 +32,9 @@ const TOG = { trams: ["tram_routes"], vehicles: [] }, tog = (id) => TOG[id] || [
 
 // ─── geometry builders: geojson → flat float32 line/point arrays in local metres ───
 const drape = (lng, lat, dz = 0) => { const [x, y] = ll2m(lng, lat); return [x, y, terr.elev(lng, lat) + dz]; };
+// the one clip authority: every feature — roads, buildings, lines, points, labels — is
+// trimmed to the lidar terrain coverage (proj.js Terrain.covers), so nothing draws beyond it.
+const inside = (lng, lat) => terr.covers(lng, lat);
 
 function buildingWire(fc) {
   const p = [];
@@ -39,6 +42,7 @@ function buildingWire(fc) {
     const g = f.geometry, polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
     const pr = f.properties, H = +pr.height || +pr.render_height || 8, B = +pr.min_height || 0;
     for (const poly of polys) for (const ring of poly) for (let i = 0; i < ring.length - 1; i++) {
+      if (!(inside(ring[i][0], ring[i][1]) && inside(ring[i + 1][0], ring[i + 1][1]))) continue;
       const [ax, ay] = ll2m(ring[i][0], ring[i][1]), [bx, by] = ll2m(ring[i + 1][0], ring[i + 1][1]);
       const ga = terr.elev(ring[i][0], ring[i][1]), gb = terr.elev(ring[i + 1][0], ring[i + 1][1]);
       p.push(ax, ay, ga + B, bx, by, gb + B,   // footprint edge
@@ -56,7 +60,8 @@ function lineWire(fc) {
       : g.type === "MultiLineString" || g.type === "Polygon" ? g.coordinates
       : g.type === "MultiPolygon" ? g.coordinates.flat() : [];
     for (const ln of lines) for (let i = 0; i < ln.length - 1; i++)
-      p.push(...drape(ln[i][0], ln[i][1], 2), ...drape(ln[i + 1][0], ln[i + 1][1], 2));
+      if (inside(ln[i][0], ln[i][1]) && inside(ln[i + 1][0], ln[i + 1][1]))
+        p.push(...drape(ln[i][0], ln[i][1], 2), ...drape(ln[i + 1][0], ln[i + 1][1], 2));
   }
   return new Float32Array(p);
 }
@@ -72,6 +77,7 @@ const PT = {
 // #rrggbb → rgba float, lifting near-black liveries (e.g. tram-train #000) off the black map.
 const rgb = (h) => { const n = parseInt(h.slice(1), 16), c = [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; return Math.max(...c) < .2 ? [.7, .7, .7, 1] : [...c, 1]; };
 function setPoints(id, features, vis) {
+  features = features.filter((f) => inside(f.geometry.coordinates[0], f.geometry.coordinates[1]));
   const a = new Float32Array(features.length * 3); let cols;
   features.forEach((f, k) => { const c = f.geometry.coordinates; a.set(drape(c[0], c[1], 4), k * 3);
     if (f.properties.color) (cols ||= new Float32Array(features.length * 4)).set(rgb(f.properties.color), k * 4); });
@@ -173,7 +179,7 @@ function buildStreetLabels(fc) {
   for (const f of fc.features) { const nm = f.properties?.name; if (!nm) continue;
     const g = f.geometry, lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
     for (const ln of lines) { if (ln.length < 2) continue; const i = ln.length >> 1, A = ln[i - 1], B = ln[i];
-      const k = nm + (A[0] * 300 | 0) + "," + (A[1] * 300 | 0); if (seen.has(k)) continue; seen.add(k);
+      const k = nm + (A[0] * 300 | 0) + "," + (A[1] * 300 | 0); if (seen.has(k) || !inside(A[0], A[1])) continue; seen.add(k);
       streetLabels.push({ a: drape(A[0], A[1], 2), b: drape(B[0], B[1], 2), t: nm.toLowerCase() }); } }
 }
 const buildStopLabels = (id, tint) => { for (const f of reg[id] || []) { const c = f.geometry.coordinates;

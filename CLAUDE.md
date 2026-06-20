@@ -30,7 +30,10 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
   id/label/default). Touch this before the JS.
 - **proj.js** — the cpu maths: local-metre projection (`ll2m`), the orbit `Camera`'s
   view-proj matrix, and `Terrain` (decodes terrarium tiles → a height-field we both drape
-  geometry on via `elev()` and draw as a `wire()` grid).
+  geometry on via `elev()` and draw as a `wire()` grid). `Terrain.covers()` is the single clip
+  authority: every rendered feature (roads, buildings, lines, points, labels — via `inside()`
+  in app.js) is trimmed to where lidar coverage actually exists, so nothing floats past the
+  ground. fetchers can over-fetch their own boxes; the frontend clip is what defines the extent.
 - **gpu.js** — the `Renderer`: one WebGPU device, two pipelines (1px `line-list` + instanced
   point-markers), orbit controls (drag pan / right-drag orbit / wheel dolly; one-finger pan /
   two-finger pinch-twist-tilt on touch), and cpu-side `pick()`. API:
