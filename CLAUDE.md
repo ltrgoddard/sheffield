@@ -2,7 +2,7 @@
 
 Full-screen, pan/zoom 3D map of Sheffield fusing **EA LIDAR** terrain, **OSM** buildings,
 and live **open-data** feeds (buses, river levels, air quality, crime, council CCTV/faults,
-trees, development sites, geolocated news). Understated, SimCity-ish, with things moving.
+trees, development sites, geolocated news + r/sheffield). Understated, SimCity-ish, with things moving.
 Watch-words: quality, reliability, care.
 
 ## Architecture
@@ -109,7 +109,12 @@ all of `data/`, geojson + terrain). Two workflows:
 - **LLM-as-geocoder**: `news.py` turns unstructured RSS headlines into map pins — one `llm()` call
   returns place+lat/lng+category per item when `ANTHROPIC_API_KEY` is set, else a built-in
   neighbourhood gazetteer matches names in the text. Always degrades to valid (possibly empty)
-  geojson; never aborts the run.
+  geojson; never aborts the run. `reddit.py` reuses that same `GAZ`+`point` (imported from
+  `news`) on r/sheffield posts.
+- **Reddit (no key)**: the `.json`/`oauth` endpoints **403 datacenter IPs** (so do `old.reddit`),
+  but the plain **atom feed** `reddit.com/r/sheffield/.rss` serves fine — once you ride out
+  reddit's burst **429s** (it throttles rapid hits, ~15 s; `reddit.py` passes `tries=6` so
+  `common.fetch`'s backoff clears them). Atom namespace `{http://www.w3.org/2005/Atom}`.
 - **EA LIDAR WCS** (no key!): two subsets `&subset=E(a,b)&subset=N(c,d)` must be hand-appended
   (urlencode can't hold duplicate keys); `&scalefactor=` downsamples; axis labels `E N`, EPSG:27700.
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.

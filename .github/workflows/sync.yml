@@ -35,7 +35,7 @@ jobs:
 
       - name: Fetch the refreshable feeds
         run: |
-          for f in rivers air news crime council planning trees; do
+          for f in rivers air news reddit crime council planning trees; do
             uv run --quiet python fetchers/$f.py 2>&1 | sed "s/^/[$f] /" || true
           done
           uv run --quiet python fetchers/manifest.py
