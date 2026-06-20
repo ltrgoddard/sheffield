@@ -183,7 +183,7 @@ function wirePicking() {
 
 // ─── load everything, build geometry, start ───
 async function layers() {
-  R.setLine("buildings", buildingWire(await geo("buildings")), WHITE, true);
+  const buildingsP = geo("buildings");   // kick off the big (~40 MB) fetch now; fold it last
   const roads = await geo("roads"); seedRoads(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
   const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
 
@@ -200,7 +200,11 @@ async function layers() {
   }
 
   setPoints("trams", [], vis("trams")); setPoints("vehicles", [], vis("vehicles"));
-  buildUI(); poll(); setCount(); requestAnimationFrame(animate);
+  buildUI(); poll(); setCount();
+  // buildings last: ~12k footprints is the heaviest fold — by now the terrain, roads,
+  // trams and feeds are already on screen (animate() has been running since startup),
+  // so the city wireframe fills in rather than blocking the whole first paint.
+  R.setLine("buildings", buildingWire(await buildingsP), WHITE, true);
 }
 
 // ─── ui: toggles + legend ───
@@ -256,7 +260,7 @@ function poll() {
     R = new Renderer($("#gpu"), cam); await R.init();
     window.R = R; window.cam = cam; window.terr = terr;
     if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], true);
-    wirePicking(); await layers();
+    wirePicking(); requestAnimationFrame(animate); await layers();   // paint from frame one; layers stream in
   } catch (e) {
     $("#nogpu").style.display = "block"; $("#nogpu").textContent = "this view needs a webgpu browser — " + e.message;
   }
