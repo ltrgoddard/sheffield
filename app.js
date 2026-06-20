@@ -6,6 +6,10 @@ import { Renderer } from "./gpu.js";
 
 const D = Math.PI / 180, $ = (s) => document.querySelector(s);
 const geo = (f) => fetch(`data/${f}.geojson`).then((r) => r.ok ? r.json() : empty).catch(() => empty);
+// static feeds (tram route/stop geometry) barely change: serve from localStorage instantly, revalidate in the background.
+const cgeo = async (f) => { const k = "geo:" + f, hit = localStorage[k];
+  const live = geo(f).then((d) => { if (d.features.length) localStorage[k] = JSON.stringify(d); return d; });
+  return hit ? JSON.parse(hit) : live; };
 const empty = { type: "FeatureCollection", features: [] };
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
@@ -142,7 +146,7 @@ async function layers() {
   R.setLine("buildings", buildingWire(await geo("buildings")), WHITE, true);
   R.setLine("roads", lineWire(await geo("roads")), [1, 1, 1, .5], true);
 
-  const routes = await geo("tram_routes"); seedTrams(routes);
+  const routes = await cgeo("tram_routes"); seedTrams(routes);
   R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
   R.setLine("boundary", lineWire(await geo("boundary")), FAINT, true);
   R.setLine("wards", lineWire(await geo("wards")), [1, 1, 1, .22], vis("wards"));
@@ -153,7 +157,7 @@ async function layers() {
   const faults = await geo("faults"); counts.faults = faults.features.length; setPoints("faults", faults.features, vis("faults"));
   const cctv = await geo("cctv"); counts.cctv = cctv.features.length; setPoints("cctv", cctv.features, vis("cctv"));
   const trees = await geo("trees"); counts.trees = trees.features.length; setPoints("trees", trees.features, vis("trees"));
-  setPoints("stops", (await geo("tram_stops")).features, vis("stops"));
+  setPoints("stops", (await cgeo("tram_stops")).features, vis("stops"));
   setPoints("air", (await geo("air")).features, vis("air"));
   setPoints("news", (await geo("news")).features, vis("news"));
   setPoints("rivers", (await geo("rivers")).features, vis("rivers"));
