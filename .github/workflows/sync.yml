@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write  # release asset upload/clobber (read isn't enough → 403)
   actions: write
 
 concurrency:
