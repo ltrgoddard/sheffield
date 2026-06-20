@@ -283,7 +283,7 @@ function syncLegend() {
   const lg = $("#legend"); lg.classList.toggle("show", on.has("trams"));
   if (!on.has("trams")) return; const seen = {}, lines = [];
   tramLines.forEach((l) => { if (!seen[l.ref]) { seen[l.ref] = 1; lines.push(l); } });
-  lg.innerHTML = lines.map((l) => `<div class="li"><i style="background:${l.color}"></i>${l.ref || l.name || "line"}</div>`).join("");
+  lg.innerHTML = lines.map((l) => `<div class="li">${l.ref || l.name || "line"}<i style="background:${l.color}"></i></div>`).join("");
 }
 
 // ─── polling live feeds + clock ───

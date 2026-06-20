@@ -43,7 +43,7 @@ export const GROUPS = [
     ["crime", "crime", false],
     ["news", "city news", false],
   ]],
-  ["administrative", "administrative", [
+  ["administrative", "government", [
     ["wards", "wards", false],
     ["planning", "development sites", false],
   ]],
