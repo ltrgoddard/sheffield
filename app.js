@@ -20,10 +20,9 @@ const setCount = () => $("#count").textContent =
   Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} ${k}`).join(" · ") || "no data";
 
 let R, terr;
-// static toggle id → renderer layer ids; trams/vehicles are dynamic, gated by vis() each frame.
-const TOG = { trams: ["tram_routes"], stops: ["stops"],
-  vehicles: [], cctv: ["cctv"], faults: ["faults"], crime: ["crime"], wards: ["wards"], clean_air: ["clean_air"],
-  trees: ["trees"], air: ["air"], news: ["news"], rivers: ["rivers"], planning: ["planning"] };
+// a toggle drives the like-named renderer layer; only these two diverge — trams owns
+// the static route line (its dots are gated per-frame by vis()), vehicles is all dynamic.
+const TOG = { trams: ["tram_routes"], vehicles: [] }, tog = (id) => TOG[id] || [id];
 
 // ─── geometry builders: geojson → flat float32 line/point arrays in local metres ───
 const drape = (lng, lat, dz = 0) => { const [x, y] = ll2m(lng, lat); return [x, y, terr.elev(lng, lat) + dz]; };
@@ -90,15 +89,14 @@ function tramFeatures() {
   for (const l of tramLines) { const h = headway(l.ref, now), T = l.total / TRAM.speed;
     for (let m = Math.max(0, Math.ceil((nowS - startS - T) / h)); ; m++) {
       const dep = startS + m * h, age = nowS - dep; if (age < 0 || dep > endS) break;
-      const { p } = at(l, age * TRAM.speed);
-      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: p }, properties: { ref: l.ref, name: l.name } });
+      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: at(l, age * TRAM.speed) }, properties: { ref: l.ref, name: l.name } });
     } }
   return feats;
 }
 const at = (l, d) => { d = ((d % l.total) + l.total) % l.total; let lo = 0, hi = l.cum.length - 1;
   while (hi - lo > 1) { const m = (lo + hi) >> 1; l.cum[m] <= d ? lo = m : hi = m; }
   const a = l.c[lo], b = l.c[hi], seg = l.cum[hi] - l.cum[lo] || 1, t = (d - l.cum[lo]) / seg;
-  return { p: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t] }; };
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
 
 // ─── live buses: ride the real road network out from each fix, so motion is
 // continuous and on-road — never rubber-banding back or drifting off the map the
@@ -136,7 +134,7 @@ function onVehicles(fc) {
   const prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
   vehs = fc.features.map((f) => { const id = f.properties.vehicle || f.geometry.coordinates.join(), c = f.geometry.coordinates;
     const s = snapRoad(c[0], c[1], (f.properties.bearing || 0) * D); if (!s) return null;
-    return { id, ...s, cur: prev[id] ? prev[id].cur : at(s.line, s.d).p, props: f.properties }; }).filter(Boolean);
+    return { id, ...s, cur: prev[id] ? prev[id].cur : at(s.line, s.d), props: f.properties }; }).filter(Boolean);
 }
 
 function animate(now) {
@@ -145,7 +143,7 @@ function animate(now) {
   if (vehs.length) setPoints("vehicles", vehs.map((v) => {
     v.d += v.dir * MPS * dt;
     if (v.d < 0 || v.d > v.line.total) { v.dir *= -1; v.d = Math.max(0, Math.min(v.line.total, v.d)); }   // bounce at road ends
-    const t = at(v.line, v.d).p;
+    const t = at(v.line, v.d);
     v.cur[0] += (t[0] - v.cur[0]) * .12; v.cur[1] += (t[1] - v.cur[1]) * .12;   // ease (smooths re-snaps to live fixes)
     return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles"));
   R.frame(); requestAnimationFrame(animate);
@@ -178,23 +176,20 @@ function wirePicking() {
 // ─── load everything, build geometry, start ───
 async function layers() {
   R.setLine("buildings", buildingWire(await geo("buildings")), WHITE, true);
-  const roads = await geo("roads"); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true); seedRoads(roads);
+  const roads = await geo("roads"); seedRoads(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
 
-  const routes = await cgeo("tram_routes"); seedTrams(routes);
-  R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
-  R.setLine("boundary", lineWire(await geo("boundary")), FAINT, true);
-  R.setLine("wards", lineWire(await geo("wards")), [1, 1, 1, .22], vis("wards"));
-  R.setLine("clean_air", lineWire(await geo("clean_air")), [.6, .85, 1, .5], vis("clean_air"));
-  R.setLine("planning", lineWire(await geo("planning")), [.7, .5, 1, .45], vis("planning"));
+  // line/polygon overlays: [id, colour] — file name is the id; boundary is base, the rest toggle.
+  for (const [id, col] of [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [.7, .5, 1, .45]]])
+    R.setLine(id, lineWire(await geo(id)), col, id === "boundary" || vis(id));
 
-  const crime = await geo("crime"); counts.crime = crime.features.length; setPoints("crime", crime.features, vis("crime"));
-  const faults = await geo("faults"); counts.faults = faults.features.length; setPoints("faults", faults.features, vis("faults"));
-  const cctv = await geo("cctv"); counts.cctv = cctv.features.length; setPoints("cctv", cctv.features, vis("cctv"));
-  const trees = await geo("trees"); counts.trees = trees.features.length; setPoints("trees", trees.features, vis("trees"));
-  setPoints("stops", (await cgeo("tram_stops")).features, vis("stops"));
-  setPoints("air", (await geo("air")).features, vis("air"));
-  setPoints("news", (await geo("news")).features, vis("news"));
-  setPoints("rivers", (await geo("rivers")).features, vis("rivers"));
+  // point feeds: [id, file, counted?] — counted ones seed the status-bar tally.
+  for (const [id, file, n] of [["crime", "crime", 1], ["faults", "faults", 1], ["cctv", "cctv", 1], ["trees", "trees", 1],
+    ["stops", "tram_stops"], ["air", "air"], ["news", "news"], ["rivers", "rivers"]]) {
+    const d = await (file === "tram_stops" ? cgeo : geo)(file);
+    if (n) counts[id] = d.features.length;
+    setPoints(id, d.features, vis(id));
+  }
 
   setPoints("trams", [], vis("trams")); setPoints("vehicles", [], vis("vehicles"));
   buildUI(); poll(); setCount(); requestAnimationFrame(animate);
@@ -202,7 +197,7 @@ async function layers() {
 
 // ─── ui: toggles + legend ───
 const set = (id, s) => { s ? on.add(id) : on.delete(id);
-  $(`.row[data-id="${id}"]`)?.classList.toggle("on", s); (TOG[id] || []).forEach((l) => R.setVisible(l, s)); };
+  $(`.row[data-id="${id}"]`)?.classList.toggle("on", s); tog(id).forEach((l) => R.setVisible(l, s)); };
 const grpItems = (gid) => GROUPS.find((g) => g[0] === gid)[2];
 function buildUI() {
   $("#toggles").innerHTML = GROUPS.map(([gid, glabel, items]) =>

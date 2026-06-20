@@ -20,7 +20,6 @@ export const FEEDS = {
   planning: 0,              // council development-site polygons
   news: 9e5,                // geolocated city news (llm/gazetteer)
   wards: 0, boundary: 0, clean_air: 0,
-  manifest: 6e4,            // per-feed freshness index
 };
 
 // toggleable layers, grouped — each group toggles as a whole or per item: [id, label, on?].
