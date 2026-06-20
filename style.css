@@ -17,6 +17,13 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
   border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; padding: 16px 18px; }
 
 #panel { top: 24px; right: 24px; width: 158px; }
+#bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: lowercase; color: var(--dim2); user-select: none; margin-bottom: 13px; padding-bottom: 13px; border-bottom: 1px solid rgba(255, 255, 255, .12); transition: color .15s; }
+#bar:hover { color: var(--text); }
+#bar i { width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-135deg); transition: transform .2s; }
+#panel.folded { width: auto; }
+#panel.folded #bar { margin: 0; padding: 0; border: 0; }
+#panel.folded #bar i { transform: rotate(45deg); }
+#panel.folded #toggles, #panel.folded #legend { display: none; }
 .gh { display: flex; align-items: center; gap: 10px; padding: 5px 0; margin-top: 9px; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: lowercase; color: var(--dim2); user-select: none; transition: color .15s; }
 .gh:first-child { margin-top: 0; }
 .gh.on, .gh:hover { color: var(--text); }

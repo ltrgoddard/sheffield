@@ -260,6 +260,7 @@ function poll() {
     R = new Renderer($("#gpu"), cam); await R.init();
     window.R = R; window.cam = cam; window.terr = terr;
     if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], true);
+    $("#bar").onclick = () => $("#panel").classList.toggle("folded");
     wirePicking(); requestAnimationFrame(animate); await layers();   // paint from frame one; layers stream in
   } catch (e) {
     $("#nogpu").style.display = "block"; $("#nogpu").textContent = "this view needs a webgpu browser — " + e.message;

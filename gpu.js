@@ -105,14 +105,30 @@ export class Renderer {
     }
     return best;
   }
-  // left-drag pans the ground, right/shift-drag orbits, wheel dollies.
+  // left-drag/one-finger pans the ground, right/shift-drag orbits, wheel dollies.
+  // mobile: one finger pans, two fingers pinch-zoom · twist-orbit · parallel-drag tilt.
   controls() {
-    const cv = this.cv; let px = 0, py = 0, btn = -1;
+    const cv = this.cv, pts = new Map(); let px = 0, py = 0, btn = -1, pd = 0, pa = 0, pmy = 0;
+    const two = () => { const [a, b] = [...pts.values()];     // dist · twist angle · midpoint of the two touches
+      return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        a: Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX),
+        mx: (a.clientX + b.clientX) / 2, my: (a.clientY + b.clientY) / 2 }; };
     cv.oncontextmenu = (e) => e.preventDefault();
-    cv.onpointerdown = (e) => { btn = e.shiftKey ? 2 : e.button; px = e.clientX; py = e.clientY; cv.setPointerCapture(e.pointerId); };
-    cv.onpointerup = () => (btn = -1);
+    cv.onpointerdown = (e) => { pts.set(e.pointerId, e); cv.setPointerCapture(e.pointerId);
+      btn = e.shiftKey ? 2 : e.button; px = e.clientX; py = e.clientY;
+      if (pts.size === 2) { const t = two(); pd = t.d; pa = t.a; pmy = t.my; } };
+    cv.onpointerup = cv.onpointercancel = (e) => { pts.delete(e.pointerId);
+      const r = [...pts.values()][0]; if (r) { px = r.clientX; py = r.clientY; btn = 0; } else btn = -1; };
     cv.onpointermove = (e) => {
-      if (btn < 0) return; const dx = e.clientX - px, dy = e.clientY - py; px = e.clientX; py = e.clientY; const c = this.cam;
+      if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, e); const c = this.cam;
+      if (pts.size >= 2) {                                    // two-finger gesture: zoom + orbit + tilt at once
+        const t = two(), f = Math.max(200, Math.min(40000, c.dist * pd / t.d)) / c.dist,
+          g = c.ground(t.mx / cv.clientWidth * 2 - 1, 1 - t.my / cv.clientHeight * 2, cv.clientWidth / cv.clientHeight);
+        c.target[0] += (1 - f) * (g[0] - c.target[0]); c.target[1] += (1 - f) * (g[1] - c.target[1]); c.dist *= f;
+        c.az -= t.a - pa; c.pitch = Math.max(0.08, Math.min(1.45, c.pitch - (t.my - pmy) * 0.004));
+        pd = t.d; pa = t.a; pmy = t.my; return;
+      }
+      if (btn < 0) return; const dx = e.clientX - px, dy = e.clientY - py; px = e.clientX; py = e.clientY;
       if (btn === 0) { const mpp = 2 * c.dist * Math.tan(c.fov * Math.PI / 360) / cv.clientHeight, a = c.az;
         c.target[0] -= (Math.cos(a) * dx + Math.sin(a) * dy) * mpp;
         c.target[1] -= (Math.sin(a) * dx - Math.cos(a) * dy) * mpp;
