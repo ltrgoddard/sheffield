@@ -18,7 +18,8 @@ if __name__ == "__main__":
     for svc, lyr, kind, cap in JOBS:
         log(f"planning: {kind} ← {svc}/{lyr}")
         try:
-            for f in arcgis(svc, lyr, extra={"maxAllowableOffset": 5}):
+            # offset is in outSR units (degrees here) — 5° flattens polygons to a point; ~5 m
+            for f in arcgis(svc, lyr, extra={"maxAllowableOffset": 5e-5}):
                 p = f.get("properties", {})
                 homes = p.get(cap) or p.get("minnetdwellings") or p.get("dwellings")
                 f["properties"] = {"kind": kind, "ref": p.get("sitereference") or p.get("siteref"),
