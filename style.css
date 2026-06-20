@@ -10,8 +10,10 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 #gpu { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: #000; touch-action: none; cursor: grab; }
 #gpu:active { cursor: grabbing; }
 
-/* chrome sits straight on the canvas — no panels, no fills */
+/* chrome sits on the canvas in blurred semi-transparent grey boxes */
 #brand, #panel, #status { position: absolute; z-index: 2; text-shadow: 0 1px 8px rgba(0, 0, 0, .9); }
+#brand, #panel { background: rgba(40, 40, 44, .45); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; padding: 16px 18px; }
 
 #brand { top: 22px; left: 24px; }
 #brand h1 { font-size: 15px; font-weight: 600; letter-spacing: .34em; text-transform: uppercase; }
