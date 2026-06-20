@@ -18,7 +18,7 @@ const BUSES = `https://bustimes.org/vehicles.json?xmin=${BBOX.w}&ymin=${BBOX.s}&
 const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() => [])
   .then((vs) => ({ type: "FeatureCollection", features: (vs || []).map((v) => ({
     type: "Feature", geometry: { type: "Point", coordinates: v.coordinates },
-    properties: { vehicle: v.id, bearing: v.heading || 0, line: v.service?.line_name || "", operator: v.vehicle?.name || "" } })) }));
+    properties: { vehicle: v.id, line: v.service?.line_name || "", operator: v.vehicle?.name || "" } })) }));
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
 const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1];
@@ -71,10 +71,13 @@ const PT = {
   news: [[1, 1, 0, 1], 6], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [[1, 0, 1, 1], 4],
   bus_stops: [[1, .55, .85, .7], 2],
 };
+// #rrggbb → rgba float, lifting near-black liveries (e.g. tram-train #000) off the black map.
+const rgb = (h) => { const n = parseInt(h.slice(1), 16), c = [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; return Math.max(...c) < .2 ? [.7, .7, .7, 1] : [...c, 1]; };
 function setPoints(id, features, vis) {
-  const a = new Float32Array(features.length * 3);
-  features.forEach((f, k) => { const c = f.geometry.coordinates; a.set(drape(c[0], c[1], 4), k * 3); });
-  R.setMark(id, a, PT[id][0], PT[id][1], vis, true); reg[id] = features;
+  const a = new Float32Array(features.length * 3); let cols;
+  features.forEach((f, k) => { const c = f.geometry.coordinates; a.set(drape(c[0], c[1], 4), k * 3);
+    if (f.properties.color) (cols ||= new Float32Array(features.length * 4)).set(rgb(f.properties.color), k * 4); });
+  R.setMark(id, a, PT[id][0], PT[id][1], vis, true, cols); reg[id] = features;
 }
 
 // ─── trams from the timetable, along the real osm route geometry (see CLAUDE.md) ───
@@ -101,7 +104,7 @@ function tramFeatures() {
   for (const l of tramLines) { const h = headway(l.ref, now), T = l.dur;
     for (let m = Math.max(0, Math.ceil((nowS - startS - T) / h)); ; m++) {
       const dep = startS + m * h, age = nowS - dep; if (age < 0 || dep > endS) break;
-      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: at(l, age / T * l.total) }, properties: { ref: l.ref, name: l.name } });
+      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: at(l, age / T * l.total) }, properties: { ref: l.ref, name: l.name, color: l.color } });
     } }
   return feats;
 }
@@ -110,54 +113,27 @@ const at = (l, d) => { d = ((d % l.total) + l.total) % l.total; let lo = 0, hi =
   const a = l.c[lo], b = l.c[hi], seg = l.cum[hi] - l.cum[lo] || 1, t = (d - l.cum[lo]) / seg;
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
 
-// ─── live buses: ride the real road network out from each fix, so motion is
-// continuous and on-road — never rubber-banding back or drifting off the map the
-// way raw dead-reckoning does. a snapshot snaps each bus to its nearest road and
-// drives it along (direction from its bearing, bouncing at road ends); a genuinely
-// new fix re-snaps it (identical re-polls are ignored). with a live feed they track
-// real movement, without one they just keep cruising the streets. (see CLAUDE.md)
-const MPS = 6, CELL = 250;          // bus cruising speed (m/s) + road-snap grid cell (m)
-let vehs = [], roadLines = [], grid = new Map(), vlast = 0, vsig = "";
-function seedRoads(fc) {
-  roadLines = []; grid = new Map();
-  for (const f of fc.features) {
-    const g = f.geometry, lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
-    for (const c of lines) { if (c.length < 2) continue;
-      const m = c.map((p) => ll2m(p[0], p[1])), cum = [0];
-      for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + Math.hypot(m[i][0] - m[i - 1][0], m[i][1] - m[i - 1][1]));
-      if (cum[cum.length - 1] < 30) continue;
-      const l = { c, m, cum, total: cum[cum.length - 1] }; roadLines.push(l);
-      m.forEach((p, i) => { const k = (p[0] / CELL | 0) + "," + (p[1] / CELL | 0); (grid.get(k) || grid.set(k, []).get(k)).push([l, i]); });
-    }
-  }
-}
-function snapRoad(lng, lat, brg) {     // nearest road vertex (3×3 grid window) → {line, d, dir}
-  const [bx, by] = ll2m(lng, lat), cx = bx / CELL | 0, cy = by / CELL | 0; let best = 1e30, bl, bi;
-  for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) { const b = grid.get(gx + "," + gy); if (!b) continue;
-    for (const [l, i] of b) { const dx = l.m[i][0] - bx, dy = l.m[i][1] - by, dd = dx * dx + dy * dy; if (dd < best) { best = dd; bl = l; bi = i; } } }
-  if (!bl) return null;                // bus beyond road coverage — drop it
-  const j = bi < bl.m.length - 1 ? bi : bi - 1, tx = bl.m[j + 1][0] - bl.m[j][0], ty = bl.m[j + 1][1] - bl.m[j][1];
-  return { line: bl, d: bl.cum[bi], dir: Math.sin(brg) * tx + Math.cos(brg) * ty >= 0 ? 1 : -1 };
-}
+// ─── live buses: interpolate each vehicle smoothly along the straight line between
+// its two most recent live fixes over the poll interval — so motion is continuous and
+// always in the real direction of travel, never overshooting, reversing or drifting off
+// the data the way dead-reckoning from a bearing did. (see CLAUDE.md)
+const POLL = FEEDS.vehicles;        // ms between live fixes = the interpolation window
+let vehs = [], vsig = "", vt = 0;
 function onVehicles(fc) {
-  if (!roadLines.length) return;
   const sig = fc.features.length + (fc.features[0]?.geometry.coordinates + "") + (fc.features.at(-1)?.geometry.coordinates + "");
-  if (sig === vsig) return; vsig = sig;          // ignore unchanged re-polls so static data seeds once
+  if (sig === vsig) return; vsig = sig;          // ignore unchanged re-polls
   const prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
-  vehs = fc.features.map((f) => { const id = f.properties.vehicle || f.geometry.coordinates.join(), c = f.geometry.coordinates;
-    const s = snapRoad(c[0], c[1], (f.properties.bearing || 0) * D); if (!s) return null;
-    return { id, ...s, cur: prev[id] ? prev[id].cur : at(s.line, s.d), props: f.properties }; }).filter(Boolean);
+  vt = performance.now();                         // share the rAF clock so animate()'s progress lines up
+  vehs = fc.features.map((f) => { const id = f.properties.vehicle || f.geometry.coordinates.join(), c = f.geometry.coordinates, p = prev[id];
+    return { id, from: p ? p.cur : c, to: c, cur: p ? p.cur : c, props: f.properties }; });
 }
 
 function animate(now) {
-  const dt = Math.min(0.1, (now - vlast) / 1e3); vlast = now;
   setPoints("trams", tramFeatures(), vis("trams"));
-  if (vehs.length) setPoints("vehicles", vehs.map((v) => {
-    v.d += v.dir * MPS * dt;
-    if (v.d < 0 || v.d > v.line.total) { v.dir *= -1; v.d = Math.max(0, Math.min(v.line.total, v.d)); }   // bounce at road ends
-    const t = at(v.line, v.d);
-    v.cur[0] += (t[0] - v.cur[0]) * .12; v.cur[1] += (t[1] - v.cur[1]) * .12;   // ease (smooths re-snaps to live fixes)
-    return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles"));
+  if (vehs.length) { const p = Math.min(1, (now - vt) / POLL);     // 0→1 across the fix interval, then hold
+    setPoints("vehicles", vehs.map((v) => {
+      v.cur = [v.from[0] + (v.to[0] - v.from[0]) * p, v.from[1] + (v.to[1] - v.from[1]) * p];
+      return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles")); }
   R.frame(); drawLabels(); requestAnimationFrame(animate);
 }
 
@@ -236,7 +212,7 @@ function drawLabels() {
 // ─── load everything, build geometry, start ───
 async function layers() {
   const buildingsP = geo("buildings");   // kick off the big (~40 MB) fetch now; fold it last
-  const roads = await geo("roads"); seedRoads(roads); buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  const roads = await geo("roads"); buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
   const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
 
   // line/polygon overlays: [id, colour] — file name is the id; boundary is base, the rest toggle.
