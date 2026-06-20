@@ -3,7 +3,7 @@
   --dim: #71717a;
   --dim2: #a8a8b2;
   --line: rgba(255, 255, 255, .22);
-  --font: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 * { box-sizing: border-box; margin: 0; }
 html, body { height: 100%; width: 100%; }

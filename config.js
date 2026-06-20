@@ -7,7 +7,7 @@ export const BBOX = { w: -1.802, s: 53.304, e: -1.324, n: 53.504 };
 
 // local ea-lidar terrarium tiles (built by fetchers/lidar.py) draped as a wire grid.
 export const TILES = "data/terrain/{z}/{x}/{y}.png";
-export const TERRAIN = { zoom: 14, step: 2, exag: 1.4 }; // grid subsample (px), vertical exaggeration
+export const TERRAIN = { zoom: 14, step: 3, exag: 1.4 }; // grid subsample (px), vertical exaggeration
 
 // data files the fetchers write, with how often the frontend re-reads them (ms; 0 = once).
 export const FEEDS = {
