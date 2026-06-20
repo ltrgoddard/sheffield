@@ -125,7 +125,8 @@ export class Renderer {
         const t = two(), f = Math.max(200, Math.min(40000, c.dist * pd / t.d)) / c.dist,
           g = c.ground(t.mx / cv.clientWidth * 2 - 1, 1 - t.my / cv.clientHeight * 2, cv.clientWidth / cv.clientHeight);
         c.target[0] += (1 - f) * (g[0] - c.target[0]); c.target[1] += (1 - f) * (g[1] - c.target[1]); c.dist *= f;
-        c.az -= t.a - pa; c.pitch = Math.max(0.08, Math.min(1.45, c.pitch - (t.my - pmy) * 0.004));
+        c.az += t.a - pa;   // screen-y points down, so a clockwise twist raises t.a — add it so the map follows the fingers
+        c.pitch = Math.max(0.08, Math.min(1.45, c.pitch - (t.my - pmy) * 0.004));
         pd = t.d; pa = t.a; pmy = t.my; return;
       }
       if (btn < 0) return; const dx = e.clientX - px, dy = e.clientY - py; px = e.clientX; py = e.clientY;
