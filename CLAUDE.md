@@ -70,7 +70,7 @@ Frontend lives in git; **data lives in the `latest-data` GitHub Release** (a `da
 all of `data/`, geojson + terrain). Two workflows:
 - **deploy.yml** (push to main / dispatch) — assembles `_site` = frontend + the release's
   data and publishes it to Pages (live at `ltrg.co.uk/sheffield`).
-- **sync.yml** (cron, every 6 h) — re-fetches the *refreshable* feeds (rivers, air, news,
+- **sync.yml** (cron, daily) — re-fetches the *refreshable* feeds (rivers, air, news,
   crime, council, planning, trees), re-zips, re-uploads the release, then triggers a redeploy.
   The heavy static layers (buildings, roads, trams, terrain) carry over from the release
   untouched — rebuild those locally with `make` + `make lidar` and `gh release upload

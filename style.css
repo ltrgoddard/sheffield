@@ -50,6 +50,7 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 #popup b { font-size: 8.5px; letter-spacing: .16em; text-transform: lowercase; color: var(--dim); display: block; margin-bottom: 4px; font-weight: 500; }
 #popup .v { line-height: 1.45; }
 #popup .m { color: var(--dim); font-size: 10.5px; margin-top: 5px; }
+#popup a { color: inherit; text-decoration: underline; text-underline-offset: 2px; pointer-events: auto; } /* clickable through the no-pointer popup */
 
 #nogpu { position: absolute; inset: 0; z-index: 4; display: none; place-content: center; text-align: center;
   align-content: center; color: var(--dim); font-size: 12px; letter-spacing: .12em; text-transform: lowercase; padding: 40px; }

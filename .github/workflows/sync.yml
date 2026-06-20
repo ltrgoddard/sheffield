@@ -1,13 +1,13 @@
 name: Refresh data
 
-# re-fetch the feeds that actually change (rivers, air, news, crime, council faults,
+# re-fetch the feeds that actually change (rivers, air, news, tribune, crime, council faults,
 # planning, trees), repackage the data release, and trigger a redeploy. the heavy,
 # static layers (buildings, roads, trams, terrain) are carried over from the existing
 # release untouched — rebuild those locally with `make` + `make lidar` when needed.
 # (live buses aren't here at all: the frontend pulls them straight from bustimes.org.)
 on:
   schedule:
-    - cron: '17 */6 * * *'   # every 6 hours, off the hour
+    - cron: '17 4 * * *'   # daily at 04:17 utc
   workflow_dispatch:
 
 permissions:
@@ -35,12 +35,13 @@ jobs:
 
       - name: Fetch the refreshable feeds
         run: |
-          for f in rivers air news reddit crime council planning trees; do
+          for f in rivers air news reddit tribune crime council planning trees; do
             uv run --quiet python fetchers/$f.py 2>&1 | sed "s/^/[$f] /" || true
           done
           uv run --quiet python fetchers/manifest.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TRIBUNE_API_KEY: ${{ secrets.TRIBUNE_API_KEY }}
 
       - name: Repackage and publish the data release
         run: |

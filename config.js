@@ -20,6 +20,7 @@ export const FEEDS = {
   planning: 0,              // council development-site polygons
   news: 9e5,                // geolocated city news (llm/gazetteer)
   reddit: 9e5,              // geolocated r/sheffield posts (llm/gazetteer)
+  tribune: 9e5,             // sheffield tribune posts (ghost api → llm/gazetteer)
   wards: 0, boundary: 0, clean_air: 0,
 };
 
@@ -44,6 +45,7 @@ export const GROUPS = [
     ["crime", "crime", false],
     ["news", "city news", false],
     ["reddit", "r/sheffield", false],
+    ["tribune", "sheffield tribune", true],
   ]],
   ["administrative", "administrative", [
     ["wards", "wards", false],
