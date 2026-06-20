@@ -47,7 +47,7 @@ export const GROUPS = [
     ["reddit", "r/sheffield", false],
     ["tribune", "sheffield tribune", true],
   ]],
-  ["administrative", "administrative", [
+  ["administrative", "government", [
     ["wards", "wards", false],
     ["planning", "development sites", false],
   ]],

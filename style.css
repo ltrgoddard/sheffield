@@ -41,7 +41,7 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 #legend { margin-top: 13px; padding-top: 13px; border-top: 1px solid rgba(255, 255, 255, .12); display: none; gap: 7px; flex-direction: column; }
 #legend.show { display: flex; }
 #legend .li { display: flex; align-items: center; gap: 9px; font-size: 10px; letter-spacing: .06em; text-transform: lowercase; color: var(--dim); }
-#legend .li i { width: 14px; height: 2px; flex: none; }
+#legend .li i { width: 14px; height: 2px; flex: none; margin-left: auto; }
 
 #status { bottom: 22px; left: 24px; font-size: 9.5px; font-weight: 400; letter-spacing: .12em; text-transform: lowercase; color: var(--dim); display: flex; align-items: center; }
 #dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text); margin-right: 10px; animation: pulse 2.6s infinite; }
