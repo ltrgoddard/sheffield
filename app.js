@@ -113,27 +113,30 @@ const at = (l, d) => { d = ((d % l.total) + l.total) % l.total; let lo = 0, hi =
   const a = l.c[lo], b = l.c[hi], seg = l.cum[hi] - l.cum[lo] || 1, t = (d - l.cum[lo]) / seg;
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
 
-// ─── live buses: interpolate each vehicle smoothly along the straight line between
-// its two most recent live fixes over the poll interval — so motion is continuous and
-// always in the real direction of travel, never overshooting, reversing or drifting off
-// the data the way dead-reckoning from a bearing did. (see CLAUDE.md)
-const POLL = FEEDS.vehicles;        // ms between live fixes = the interpolation window
-let vehs = [], vsig = "", vt = 0;
+// ─── live buses: glide each bus along the straight line between its real reported
+// fixes. honest (it shows only movement the feed actually reports), monotonic — it
+// never bounces backwards or drifts off-road the way fabricated dead-reckoning did —
+// and smooth: a new fix becomes the target and the marker eases toward it over the
+// time the previous fix took, so motion matches the feed's own cadence. (see CLAUDE.md)
+let vehs = [];
 function onVehicles(fc) {
-  const sig = fc.features.length + (fc.features[0]?.geometry.coordinates + "") + (fc.features.at(-1)?.geometry.coordinates + "");
-  if (sig === vsig) return; vsig = sig;          // ignore unchanged re-polls
-  const prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
-  vt = performance.now();                         // share the rAF clock so animate()'s progress lines up
-  vehs = fc.features.map((f) => { const id = f.properties.vehicle || f.geometry.coordinates.join(), c = f.geometry.coordinates, p = prev[id];
-    return { id, from: p ? p.cur : c, to: c, cur: p ? p.cur : c, props: f.properties }; });
+  const t = performance.now(), prev = Object.fromEntries(vehs.map((v) => [v.id, v]));
+  vehs = fc.features.map((f) => {
+    const id = f.properties.vehicle || f.geometry.coordinates.join(), to = f.geometry.coordinates, p = prev[id];
+    const dur = p ? Math.min(30, Math.max(4, (t - p.t0) / 1e3)) : 0;
+    // glide from the last shown point over the feed's own cadence — but snap (no glide) on first
+    // sight or an implausible jump (gps spike / reacquisition), so a bus never streaks across the map
+    const snap = !p || hav(p.cur, to) > 40 * dur;
+    return { id, from: snap ? to : p.cur, to, t0: t, dur: snap ? 0 : dur, cur: snap ? to.slice() : p.cur, props: f.properties };
+  });
 }
 
 function animate(now) {
   setPoints("trams", tramFeatures(), vis("trams"));
-  if (vehs.length) { const p = Math.min(1, (now - vt) / POLL);     // 0→1 across the fix interval, then hold
-    setPoints("vehicles", vehs.map((v) => {
-      v.cur = [v.from[0] + (v.to[0] - v.from[0]) * p, v.from[1] + (v.to[1] - v.from[1]) * p];
-      return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles")); }
+  if (vehs.length) setPoints("vehicles", vehs.map((v) => {
+    const k = v.dur ? Math.min(1, (now - v.t0) / (v.dur * 1e3)) : 1;
+    v.cur = [v.from[0] + (v.to[0] - v.from[0]) * k, v.from[1] + (v.to[1] - v.from[1]) * k];
+    return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles"));
   R.frame(); drawLabels(); requestAnimationFrame(animate);
 }
 
