@@ -169,7 +169,7 @@ const grpItems = (gid) => GROUPS.find((g) => g[0] === gid)[2];
 function buildUI() {
   $("#toggles").innerHTML = GROUPS.map(([gid, glabel, items]) =>
     `<div class="gh" data-grp="${gid}">${glabel}<span class="tk"></span></div>` +
-    items.map(([id, label]) => `<div class="row" data-id="${id}">${label}<span class="tk"></span></div>`).join("")).join("");
+    items.map(([id, label]) => `<div class="row ${vis(id) ? "on" : ""}" data-id="${id}">${label}<span class="tk"></span></div>`).join("")).join("");
   $("#toggles").querySelectorAll(".row").forEach((row) =>
     row.onclick = () => { set(row.dataset.id, !on.has(row.dataset.id)); sync(); });
   $("#toggles").querySelectorAll(".gh").forEach((gh) => gh.onclick = () => {
