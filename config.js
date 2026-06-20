@@ -49,10 +49,16 @@ export const GROUPS = [
   ]],
 ];
 
-// trams have no live avl feed, so we estimate from the published timetable: each directional
-// osm route runs a tram every `headway` min (peak mon–sat daytime, else off) within the service
-// window at the line's real average speed. honest, no-key, deterministic.
-export const TRAM = { speed: 8, service: [6, 24], peak: 10, off: 20, size: 5.5 }; // m/s, [start,end]h, min, px
+// trams have no live avl feed, so we estimate from the published timetable (symca, june 2026):
+// each directional osm route runs a tram every `headway` min within the service window, taking
+// its real published end-to-end time. honest, no-key, deterministic — NOT anchored to real
+// departure clocks, so cadence/spacing are right but an individual tram isn't the real one.
+// per line: [end-to-end run min, daytime headway min]. radials 12-min base (was a 10-min stage-
+// coach base pre-2024); purple is a 30-min all-day shuttle; tram-train ~20-30. off-peak/evening/
+// sunday fall back to `off`. one uniform speed can't fit both slow radials (~6 m/s w/ dwell) and
+// the fast tram-train (~9 m/s), so we drive position from each line's own run time instead.
+export const TRAM = { service: [6, 24], off: 20, size: 5.5, // [start,end]h, min, px
+  line: { YELL: [39, 12], BLUE: [56, 12], PURP: [24, 30], TT: [26, 20] } };
 
 // text labels (lowercase jetbrains mono on a 2d overlay) fade in only when zoomed in,
 // keyed off camera distance in metres: street names below `street`, stop names below

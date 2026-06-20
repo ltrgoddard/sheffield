@@ -86,19 +86,22 @@ let tramLines = [];
 function seedTrams(fc) {
   tramLines = fc.features.map((f) => { const c = f.geometry.coordinates, cum = [0];
     for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + hav(c[i - 1], c[i]));
-    return { c, cum, total: cum[cum.length - 1], color: f.properties.colour || "#999", ref: f.properties.ref, name: f.properties.name };
+    const ref = f.properties.ref, total = cum[cum.length - 1];
+    return { c, cum, total, dur: (TRAM.line[ref]?.[0] || total / 360) * 60, ref, name: f.properties.name, color: f.properties.colour || "#999" };
   }).filter((l) => l.total > 500);
 }
-const headway = (ref, now) => (ref !== "TT" && now.getDay() >= 1 && now.getHours() >= 7 && now.getHours() < 19 ? TRAM.peak : TRAM.off) * 60;
+const headway = (ref, now) => { const hw = (TRAM.line[ref] || [0, TRAM.off])[1],
+  day = now.getDay() >= 1 && now.getHours() >= 7 && now.getHours() < 19;
+  return (day ? hw : Math.max(TRAM.off, hw)) * 60; };
 function tramFeatures() {
   const now = new Date(), nowS = now / 1e3, dawn = new Date(now); dawn.setHours(TRAM.service[0], 0, 0, 0);
   const startS = dawn / 1e3, endS = startS + (TRAM.service[1] - TRAM.service[0]) * 3600;
   if (nowS < startS || nowS > endS) return [];
   const feats = [];
-  for (const l of tramLines) { const h = headway(l.ref, now), T = l.total / TRAM.speed;
+  for (const l of tramLines) { const h = headway(l.ref, now), T = l.dur;
     for (let m = Math.max(0, Math.ceil((nowS - startS - T) / h)); ; m++) {
       const dep = startS + m * h, age = nowS - dep; if (age < 0 || dep > endS) break;
-      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: at(l, age * TRAM.speed) }, properties: { ref: l.ref, name: l.name } });
+      feats.push({ type: "Feature", geometry: { type: "Point", coordinates: at(l, age / T * l.total) }, properties: { ref: l.ref, name: l.name } });
     } }
   return feats;
 }
@@ -292,7 +295,7 @@ function poll() {
     if (!ms) continue;
     const tick = async () => { const d = f === "vehicles" ? await liveBuses() : await geo(f);
       if (f === "vehicles") { onVehicles(d);
-        $("#mode").textContent = d.features.length ? `${d.features.length} live buses · trams from timetable` : "trams from timetable";
+        $("#mode").textContent = d.features.length ? `${d.features.length} live buses · trams estimated from timetable` : "trams estimated from timetable";
       } else if (reg[f]) setPoints(f, d.features, vis(f));
       if (f in counts) { counts[f] = d.features.length; setCount(); }
     };
