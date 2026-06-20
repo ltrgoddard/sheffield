@@ -16,7 +16,7 @@ const setCount = () => $("#count").textContent =
 
 let R, terr;
 // static toggle id → renderer layer ids; trams/vehicles are dynamic, gated by vis() each frame.
-const TOG = { terrain: ["terrain"], buildings: ["buildings"], trams: ["tram_routes"], stops: ["stops"],
+const TOG = { terrain: ["terrain"], buildings: ["buildings"], roads: ["roads"], trams: ["tram_routes"], stops: ["stops"],
   vehicles: [], cctv: ["cctv"], faults: ["faults"], crime: ["crime"], wards: ["wards"], clean_air: ["clean_air"],
   trees: ["trees"], air: ["air"], news: ["news"], rivers: ["rivers"], planning: ["planning"] };
 
@@ -139,6 +139,7 @@ function wirePicking() {
 // ─── load everything, build geometry, start ───
 async function layers() {
   R.setLine("buildings", buildingWire(await geo("buildings")), WHITE, vis("buildings"));
+  R.setLine("roads", lineWire(await geo("roads")), [1, 1, 1, .5], vis("roads"));
 
   const routes = await geo("tram_routes"); seedTrams(routes);
   R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
