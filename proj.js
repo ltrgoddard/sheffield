@@ -73,6 +73,14 @@ export class Terrain {
     const e = (h[i] * (1 - dx) + h[i + 1] * dx) * (1 - dy) + (h[i + 256] * (1 - dx) + h[i + 257] * dx) * dy;
     return isFinite(e) ? e : 0;  // nodata corners → sit draped geometry flat, not in the void
   }
+  // is there real lidar coverage at lng/lat? the single source of truth for the clip
+  // extent — every rendered feature is trimmed to this so nothing floats past the ground.
+  // (no terrain loaded → don't clip at all, so the flat fallback still draws everything.)
+  covers(lng, lat) {
+    if (!this.ok) return true;
+    const z = this.z, fx = lon2x(lng, z), fy = lat2y(lat, z), h = this.t.get((fx | 0) + "/" + (fy | 0));
+    return !!h && isFinite(h[Math.min(255, (fy - (fy | 0)) * 256 | 0) * 256 + Math.min(255, (fx - (fx | 0)) * 256 | 0)]);
+  }
   // the topographic wireframe: a lifted grid of line segments over every loaded tile.
   wire() {
     const z = this.z, s = TERRAIN.step, pos = [];
