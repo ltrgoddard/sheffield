@@ -237,7 +237,7 @@ async function layers() {
   const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
 
   // line/polygon overlays: [id, colour] — file name is the id; boundary is base, the rest toggle.
-  for (const [id, col] of [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [.7, .5, 1, .45]]])
+  for (const [id, col] of [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [0, 1, 0, 1]]])
     R.setLine(id, lineWire(await geo(id)), col, id === "boundary" || vis(id));
 
   // point feeds: [id, file, counted?] — counted ones seed the status-bar tally.
