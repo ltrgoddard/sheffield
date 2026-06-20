@@ -10,7 +10,7 @@ the text. degrades to valid (possibly empty) geojson.
 """
 import json, re, html, xml.etree.ElementTree as ET
 from common import fetch, llm, fc, write, log
-from news import GAZ, point  # reuse the sheffield gazetteer + feature builder
+from news import GAZ, point, geocode  # reuse the gazetteer, feature builder + two-step geocoder
 
 URL = "https://www.reddit.com/r/sheffield/.rss"
 A = "{http://www.w3.org/2005/Atom}"  # atom namespace
@@ -26,25 +26,28 @@ def items():
         ln = e.find(A + "link")
         link = ln.get("href", "") if ln is not None else ""
         if t:
-            out.append((t, " ".join(body.split())[:300], link))
+            out.append((t, " ".join(body.split())[:700], link))
     return out[:40]
 
 
 def via_llm(rows):
-    prompt = ("These are r/sheffield (Reddit) post titles. For each clearly about a specific place "
-              "*within Sheffield*, return its location. Reply ONLY with a JSON array of "
-              '{"i":<index>,"place":<area>,"lat":<float>,"lng":<float>,'
+    """two-step: the llm names the most specific place each post is about (no
+    coordinates), then geocode() resolves real lat/lon for it."""
+    prompt = ("These are r/sheffield (Reddit) posts (title then the start of the body). For each clearly "
+              "about a specific place *within Sheffield*, name the most specific place it concerns — a "
+              "street, neighbourhood, landmark or building — using the body for precision. Reply ONLY "
+              'with a JSON array of {"i":<index>,"place":<that place name>,'
               '"category":<one of crime, travel, development, environment, community, sport, other>}. '
-              "Use real Sheffield coordinates; skip anything not about a Sheffield place.\n\n"
-              + "\n".join(f'{i}: {t}' for i, (t, _, _) in enumerate(rows)))
-    txt = llm(prompt, system="You are a precise geocoder. Output JSON only.", max_tokens=4096)
+              "Skip anything not about a Sheffield place.\n\n"
+              + "\n\n".join(f'{i}: {t}\n{s}' for i, (t, s, _) in enumerate(rows)))
+    txt = llm(prompt, system="You extract Sheffield place names as JSON. Output JSON only.", max_tokens=2048)
     txt = txt.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     feats = []
     for o in json.loads(txt):
         i = o.get("i")
-        if isinstance(i, int) and 0 <= i < len(rows):
+        if isinstance(i, int) and 0 <= i < len(rows) and (ll := geocode(o.get("place"))):
             t, s, link = rows[i]
-            feats.append(point(o["lng"], o["lat"], t, s, link, o.get("place"), o.get("category", "other")))
+            feats.append(point(*ll, t, s, link, o.get("place"), o.get("category", "other")))
     return feats
 
 

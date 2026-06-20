@@ -22,7 +22,7 @@ fetchers/   common.py + one script per source
 data/       geojson the fetchers write (gitignored; lives in the `latest-data` release)
 Makefile    data orchestration (`make`, `make lidar`, `make serve`)
 .github/workflows/  deploy.yml (pages) + sync.yml (cron refresh → release → redeploy)
-pyproject.toml  zero-dep uv project   .env  ANTHROPIC_API_KEY for news llm (gitignored)
+pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY for news llm (gitignored)
 ```
 
 - **config.js** — the only place to tune: `CITY` camera, `BBOX` (the patch we render),
@@ -44,7 +44,7 @@ pyproject.toml  zero-dep uv project   .env  ANTHROPIC_API_KEY for news llm (giti
   dot. `window.R`/`cam`/`terr` are exposed for debugging.
 - **fetchers/common.py** — `fetch`/`get_json` (urllib + retries + UA; accepts a raw
   bytes body for JSON POSTs), `overpass`, `arcgis` (paged geojson), `llm` (zero-dep
-  Anthropic call, gated on `ANTHROPIC_API_KEY`), `write` (**atomic** temp-then-rename so
+  llm call — free OpenRouter when `OPENROUTER_API_KEY` is set, else Anthropic), `write` (**atomic** temp-then-rename so
   the poller never sees a half file). Everything writes compact EPSG:4326 geojson.
 - **Makefile** runs every fetcher under `uv` **in parallel** (`make` = `-j 8`; each independent,
   one failing never aborts the rest) then `manifest.py`, which writes `data/manifest.json` — a
@@ -57,7 +57,7 @@ pyproject.toml  zero-dep uv project   .env  ANTHROPIC_API_KEY for news llm (giti
 make                 # fetch every feed into data/ (gitignored; not committed)
 make serve           # http://localhost:8000
 make lidar           # stream EA lidar → data/terrain over the full boundary (no key, ~5 min)
-cp .env.example .env && $EDITOR .env   # optional ANTHROPIC_API_KEY (news llm; else gazetteer)
+cp .env.example .env && $EDITOR .env   # optional OPENROUTER_API_KEY/ANTHROPIC_API_KEY (news llm; else gazetteer)
 ```
 
 Verify visually with headless Playwright — it ships a real WebGPU adapter; `window.R`
@@ -107,12 +107,22 @@ all of `data/`, geojson + terrain). Two workflows:
   Local Plan policy map. `AGOL/Community_Forestry_Trees/14` exists but its features have **no
   geometry** — use OSM `natural=tree` for mappable trees instead. (NCR EV chargepoints API was
   unreachable from here — dropped.)
-- **LLM-as-geocoder**: `news.py` turns unstructured RSS headlines into map pins — one `llm()` call
-  returns place+lat/lng+category per item when `ANTHROPIC_API_KEY` is set, else a built-in
-  neighbourhood gazetteer matches names in the text. Always degrades to valid (possibly empty)
-  geojson; never aborts the run. `reddit.py` and `tribune.py` reuse that same `GAZ`+`point`
-  (imported from `news`) on r/sheffield posts and tribune articles. (No repo secrets are
-  configured, so all three run the gazetteer in CI — set `ANTHROPIC_API_KEY` for richer pins.)
+- **LLM-as-geocoder (two-step)**: `news.py` turns unstructured text (headline **+ first ~700 chars
+  of body**) into map pins. Step 1 — one `llm()` call *only names* the most specific place per item
+  (no coordinates, so it can't hallucinate them); step 2 — `news.geocode()` resolves real lat/lon,
+  gazetteer first (the ~35 `GAZ` localities, instant/no network) then **Nominatim** bounded to the
+  Sheffield viewbox for anything else (streets, landmarks). Cached per run. `reddit.py`/`tribune.py`
+  reuse `GAZ`+`point`+`geocode` (imported from `news`). Always degrades to the gazetteer-only path
+  (`via_gazetteer`) on any llm failure, then to empty geojson; never aborts.
+- **LLM backend (`common.llm`)**: prefers a **free OpenRouter** model when `OPENROUTER_API_KEY` is set
+  (no anthropic spend, so it's the CI-friendly key), else the Anthropic api with `ANTHROPIC_API_KEY`;
+  raises without either. OpenRouter path uses a `models` fallback list (`OR_FREE`) + `reasoning:
+  {enabled:false}` + a generous `max_tokens` floor — the only free models reachable from here are slow
+  *thinking* models (e.g. `nex-agi/nex-n2-pro:free`) that ignore reasoning-off and otherwise 200 with
+  **null content**; the fast non-reasoning ones (`llama-3.3-70b`, `qwen3-next-80b`) are frequently
+  **429 "rate-limited upstream"**. So `tries`/`timeout` are bounded to fall to the gazetteer fast when
+  the whole free pool is busy. Account note: free models need the openrouter privacy/data-policy
+  setting enabled (else 404 "no endpoints matching your data policy").
 - **Tribune (no key)**: the ghost content api wants a `TRIBUNE_API_KEY`, but the keyless public
   rss feed `sheffieldtribune.co.uk/feed` carries the same posts (title/excerpt/link) — `tribune.py`
   uses the api only if the key is set, else the feed, so it always produces pins without a secret.

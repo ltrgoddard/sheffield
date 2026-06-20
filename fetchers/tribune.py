@@ -21,12 +21,13 @@ def items():
     key = os.environ.get("TRIBUNE_API_KEY")
     if key:
         url = (f"{SITE}/ghost/api/content/posts/?key={key}&limit=40&order=published_at%20desc"
-               "&fields=title,url,excerpt,custom_excerpt")
+               "&formats=plaintext&fields=title,url,excerpt,custom_excerpt,plaintext")
         posts = json.loads(fetch(url, headers={"Accept-Version": "v5.0"}))["posts"]
-        return [(p["title"], (p.get("custom_excerpt") or p.get("excerpt") or "")[:300], p["url"]) for p in posts]
+        body = lambda p: (p.get("plaintext") or p.get("custom_excerpt") or p.get("excerpt") or "")
+        return [(p["title"], " ".join(body(p).split())[:700], p["url"]) for p in posts]
     root = ET.fromstring(fetch(f"{SITE}/feed", headers={"User-Agent": "Mozilla/5.0"}))
     g = lambda it, t: html.unescape((it.findtext(t) or "").strip())
-    return [(g(it, "title"), re.sub("<[^>]+>", "", g(it, "description"))[:300], g(it, "link"))
+    return [(g(it, "title"), re.sub("<[^>]+>", "", g(it, "description"))[:700], g(it, "link"))
             for it in root.iter("item") if g(it, "title")][:40]
 
 

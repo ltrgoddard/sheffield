@@ -70,14 +70,36 @@ def write(name, obj):
     return p
 
 
-def llm(prompt, system="", model="claude-haiku-4-5-20251001", max_tokens=2048):
-    """one-shot anthropic messages call — text in, text out, zero pip deps.
-    needs ANTHROPIC_API_KEY; raises without it so callers can fall back."""
+# free openrouter models tried in order — the fallback list rides out the free
+# pool's frequent upstream 429s (openrouter skips an unavailable one for the next).
+OR_FREE = ["meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen3-next-80b-a3b-instruct:free",
+           "nex-agi/nex-n2-pro:free"]
+
+
+def llm(prompt, system="", model=None, max_tokens=2048):
+    """one-shot chat completion — text in, text out, zero pip deps. prefers a free
+    openrouter model when OPENROUTER_API_KEY is set, else the anthropic api with
+    ANTHROPIC_API_KEY; raises without either so callers fall back to the gazetteer."""
+    if key := os.environ.get("OPENROUTER_API_KEY"):
+        body = json.dumps({"models": [model] if model else OR_FREE, "max_tokens": max(max_tokens, 8192),
+            # headroom: the free pool's reachable models are thinking models that ignore
+            # reasoning-off and burn budget before answering — too little and content comes back null.
+            "reasoning": {"enabled": False},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}).encode()
+        # tries/timeout bounded: when the whole free list is rate-limited the 429s are
+        # instant (quick fall to the gazetteer); a generous per-attempt window lets a slow
+        # free model finish without the retry turning into a multi-minute hang.
+        r = json.loads(fetch("https://openrouter.ai/api/v1/chat/completions", data=body, tries=3, timeout=120,
+            headers={"Authorization": f"Bearer {key}", "content-type": "application/json"}))
+        c = r["choices"][0]
+        if not c["message"].get("content"):  # busy free models sometimes 200 with null content
+            raise RuntimeError(f"openrouter empty content (finish={c.get('finish_reason')})")
+        return c["message"]["content"]
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-    body = json.dumps({"model": model, "max_tokens": max_tokens, "system": system,
-                       "messages": [{"role": "user", "content": prompt}]}).encode()
+        raise RuntimeError("no LLM key (OPENROUTER_API_KEY / ANTHROPIC_API_KEY)")
+    body = json.dumps({"model": model or "claude-haiku-4-5-20251001", "max_tokens": max_tokens,
+                       "system": system, "messages": [{"role": "user", "content": prompt}]}).encode()
     r = json.loads(fetch("https://api.anthropic.com/v1/messages", data=body, headers={
         "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}))
     return "".join(b.get("text", "") for b in r.get("content", []))

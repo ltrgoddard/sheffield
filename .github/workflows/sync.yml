@@ -40,6 +40,7 @@ jobs:
           done
           uv run --quiet python fetchers/manifest.py
         env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TRIBUNE_API_KEY: ${{ secrets.TRIBUNE_API_KEY }}
 
