@@ -23,9 +23,7 @@ const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
 const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1];
 const FLAT = GROUPS.flatMap(([, , items]) => items);
-const counts = {}, on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
-const setCount = () => $("#count").textContent =
-  Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} ${k}`).join(" · ") || "no data";
+const on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 
 let R, terr, cam;
 // a toggle drives the like-named renderer layer; only these two diverge — trams owns
@@ -224,18 +222,17 @@ async function layers() {
   for (const [id, col] of [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [0, 1, 0, 1]]])
     R.setLine(id, lineWire(await geo(id)), col, id === "boundary" || vis(id));
 
-  // point feeds: [id, file, counted?] — counted ones seed the status-bar tally.
+  // point feeds: [id, file]
   const cached = new Set(["tram_stops", "bus_stops"]);   // static osm geometry, served from localStorage
-  for (const [id, file, n] of [["crime", "crime", 1], ["faults", "faults", 1], ["cctv", "cctv", 1], ["trees", "trees", 1],
+  for (const [id, file] of [["crime", "crime"], ["faults", "faults"], ["cctv", "cctv"], ["trees", "trees"],
     ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"]]) {
     const d = await (cached.has(file) ? cgeo : geo)(file);
-    if (n) counts[id] = d.features.length;
     setPoints(id, d.features, vis(id));
   }
   buildStopLabels("stops", "rgb(238,238,242)"); buildStopLabels("bus_stops", "rgb(255,150,225)");
 
   setPoints("trams", [], vis("trams")); setPoints("vehicles", [], vis("vehicles"));
-  buildUI(); poll(); setCount();
+  buildUI(); poll();
   // buildings last: ~12k footprints is the heaviest fold — by now the terrain, roads,
   // trams and feeds are already on screen (animate() has been running since startup),
   // so the city wireframe fills in rather than blocking the whole first paint.
@@ -274,20 +271,16 @@ function syncLegend() {
   lg.innerHTML = lines.map((l) => `<div class="li">${l.ref || l.name || "line"}<i style="background:${l.color}"></i></div>`).join("");
 }
 
-// ─── polling live feeds + clock ───
+// ─── polling live feeds ───
 function poll() {
   for (const [f, ms] of Object.entries(FEEDS)) {
     if (!ms) continue;
     const tick = async () => { const d = f === "vehicles" ? await liveBuses() : await geo(f);
-      if (f === "vehicles") { onVehicles(d);
-        $("#mode").textContent = d.features.length ? `${d.features.length} live buses · trams estimated from timetable` : "trams estimated from timetable";
-      } else if (reg[f]) setPoints(f, d.features, vis(f));
-      if (f in counts) { counts[f] = d.features.length; setCount(); }
+      if (f === "vehicles") onVehicles(d);
+      else if (reg[f]) setPoints(f, d.features, vis(f));
     };
     setInterval(tick, ms); if (f === "vehicles") tick();
   }
-  const clock = () => $("#clock").textContent = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  clock(); setInterval(clock, 1000);
 }
 
 (async () => {
