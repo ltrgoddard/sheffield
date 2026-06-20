@@ -19,6 +19,7 @@ export const FEEDS = {
   trees: 0,                 // osm street/park trees
   planning: 0,              // council development-site polygons
   news: 9e5,                // geolocated city news (llm/gazetteer)
+  tribune: 9e5,             // sheffield tribune posts (ghost api → llm/gazetteer)
   wards: 0, boundary: 0, clean_air: 0,
 };
 
@@ -42,6 +43,7 @@ export const GROUPS = [
     ["faults", "fault reports", false],
     ["crime", "crime", false],
     ["news", "city news", false],
+    ["tribune", "sheffield tribune", true],
   ]],
   ["administrative", "administrative", [
     ["wards", "wards", false],

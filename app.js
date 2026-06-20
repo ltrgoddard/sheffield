@@ -68,7 +68,7 @@ const reg = {};
 const PT = {
   crime: [[1, 0, 0, 1], 4], faults: [[1, .5, 0, 1], 4], cctv: [[.6, 0, 1, 1], 4],
   stops: [WHITE, 3], trees: [[0, 1, 0, 1], 2.5], air: [[0, 1, 1, 1], 5],
-  news: [[1, 1, 0, 1], 6], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [[1, 0, 1, 1], 4],
+  news: [[1, 1, 0, 1], 6], tribune: [[1, .3, .45, 1], 7], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [[1, 0, 1, 1], 4],
   bus_stops: [[1, .55, .85, .7], 2],
 };
 function setPoints(id, features, vis) {
@@ -171,6 +171,7 @@ const POP = {
   trees: (p) => `<b>Tree</b><div class="v">${p.species || "—"}</div>${p.height ? `<div class="m">${p.height} m</div>` : ""}`,
   air: (p) => `<b>Air · AQI ${p.aqi ?? "—"}</b><div class="v">PM2.5 ${p.pm25 ?? "—"} · NO₂ ${p.no2 ?? "—"}</div>`,
   news: (p) => `<b>${p.category || "News"}</b><div class="v">${p.title || ""}</div><div class="m">${p.place || ""}</div>`,
+  tribune: (p) => `<b>sheffield tribune${p.place ? " · " + p.place : ""}</b><div class="v"><a href="${p.link}" target="_blank" rel="noopener">${p.title || ""}</a></div><div class="m">${p.summary || ""}</div>`,
   rivers: (p) => `<b>River gauge</b><div class="v">${p.name || p.river || p.label || ""}</div><div class="m">${p.level ?? p.value ?? ""}</div>`,
 };
 function wirePicking() {
@@ -243,7 +244,7 @@ async function layers() {
   // point feeds: [id, file, counted?] — counted ones seed the status-bar tally.
   const cached = new Set(["tram_stops", "bus_stops"]);   // static osm geometry, served from localStorage
   for (const [id, file, n] of [["crime", "crime", 1], ["faults", "faults", 1], ["cctv", "cctv", 1], ["trees", "trees", 1],
-    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["rivers", "rivers"]]) {
+    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["tribune", "tribune"], ["rivers", "rivers"]]) {
     const d = await (cached.has(file) ? cgeo : geo)(file);
     if (n) counts[id] = d.features.length;
     setPoints(id, d.features, vis(id));
