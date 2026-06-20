@@ -80,6 +80,8 @@ export class Renderer {
     this.marks.set(id, { inst, count: xyz.length / 3, cpu: xyz, bg: this.style(color, size * this.dpr), vis, pick });
   }
   setVisible(id, on) { const e = this.lines.get(id) || this.marks.get(id); if (e) e.vis = on; }
+  // world point → css pixels through the current view-proj (null if behind), for the label overlay.
+  screen(x, y, z) { return project(this.vp, x, y, z, this.cv.clientWidth, this.cv.clientHeight); }
 
   frame() {
     const w = this.cv.width, h = this.cv.height;

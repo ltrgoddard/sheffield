@@ -11,8 +11,8 @@ export const TERRAIN = { zoom: 14, step: 3, exag: 1.4 }; // grid subsample (px),
 
 // data files the fetchers write, with how often the frontend re-reads them (ms; 0 = once).
 export const FEEDS = {
-  buildings: 0, roads: 0, tram_routes: 0, tram_stops: 0,
-  vehicles: 12e3,           // live buses (when BODS_API_KEY is set)
+  buildings: 0, roads: 0, tram_routes: 0, tram_stops: 0, bus_stops: 0,
+  vehicles: 12e3,           // live buses, fetched in-browser from bustimes.org
   rivers: 6e4,              // live ea river-level gauges
   air: 6e5,                 // synthesised air-quality grid (hourly source)
   crime: 0, faults: 3e5, cctv: 0,
@@ -28,6 +28,7 @@ export const GROUPS = [
   ["transport", "transport", [
     ["trams", "trams", true],
     ["stops", "tram stops", false],
+    ["bus_stops", "bus stops", false],
     ["vehicles", "live buses", true],
   ]],
   ["environment", "environment", [
@@ -52,3 +53,8 @@ export const GROUPS = [
 // osm route runs a tram every `headway` min (peak mon–sat daytime, else off) within the service
 // window at the line's real average speed. honest, no-key, deterministic.
 export const TRAM = { speed: 8, service: [6, 24], peak: 10, off: 20, size: 5.5 }; // m/s, [start,end]h, min, px
+
+// text labels (lowercase jetbrains mono on a 2d overlay) fade in only when zoomed in,
+// keyed off camera distance in metres: street names below `street`, stop names below
+// `stop`; each fades over the last `fade` of that range. understated, decluttered.
+export const LABELS = { street: 1100, stop: 1700, fade: 350, font: "JetBrains Mono" };

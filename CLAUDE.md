@@ -32,12 +32,16 @@ pyproject.toml  zero-dep uv project   .env  ANTHROPIC_API_KEY for news llm (giti
   view-proj matrix, and `Terrain` (decodes terrarium tiles → a height-field we both drape
   geometry on via `elev()` and draw as a `wire()` grid).
 - **gpu.js** — the `Renderer`: one WebGPU device, two pipelines (1px `line-list` + instanced
-  point-markers), orbit controls (drag pan / right-drag orbit / wheel dolly), and cpu-side
-  `pick()`. API: `setLine`/`setMark`/`setVisible`/`frame`/`pick`.
+  point-markers), orbit controls (drag pan / right-drag orbit / wheel dolly; one-finger pan /
+  two-finger pinch-twist-tilt on touch), and cpu-side `pick()`. API:
+  `setLine`/`setMark`/`setVisible`/`frame`/`pick`/`screen` (world→css-px for the label overlay).
 - **app.js** — loads each feed, folds geojson into flat float32 line/point arrays in metres
   (`buildingWire`/`lineWire`/`setPoints`), runs `animate()` (rAF loop moving trams +
-  interpolating live buses) and `poll()`, wires the toggles + popups. `window.R`/`cam`/`terr`
-  are exposed for debugging.
+  interpolating live buses, then `drawLabels()`) and `poll()`, wires the toggles + popups.
+  **Labels** (`drawLabels`) are the only text: lowercase JetBrains Mono on a 2d `#labels`
+  overlay, projected via `R.screen()` each frame, fading in only at high zoom (`LABELS` in
+  config) with greedy collision-avoidance — street names ride the road, stop names sit by the
+  dot. `window.R`/`cam`/`terr` are exposed for debugging.
 - **fetchers/common.py** — `fetch`/`get_json` (urllib + retries + UA; accepts a raw
   bytes body for JSON POSTs), `overpass`, `arcgis` (paged geojson), `llm` (zero-dep
   Anthropic call, gated on `ANTHROPIC_API_KEY`), `write` (**atomic** temp-then-rename so

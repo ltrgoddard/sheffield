@@ -10,6 +10,8 @@ html, body { height: 100%; width: 100%; }
 body { font-family: var(--font); overflow: hidden; background: #000; color: var(--text); -webkit-font-smoothing: antialiased; }
 #gpu { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: #000; touch-action: none; cursor: grab; }
 #gpu:active { cursor: grabbing; }
+/* street/stop name overlay: redrawn each frame, never intercepts input */
+#labels { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; pointer-events: none; }
 
 /* chrome sits on the canvas in blurred semi-transparent grey boxes */
 #panel, #status { position: absolute; z-index: 2; text-shadow: 0 1px 8px rgba(0, 0, 0, .9); }

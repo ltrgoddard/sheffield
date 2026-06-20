@@ -1,6 +1,6 @@
 // glue: load the open data, fold it into gpu geometry, run the live feeds and the ui.
 // the whole contract is still data/*.geojson — only the renderer changed.
-import { CITY, BBOX, FEEDS, GROUPS, TRAM } from "./config.js";
+import { CITY, BBOX, FEEDS, GROUPS, TRAM, LABELS } from "./config.js";
 import { Camera, Terrain, ll2m } from "./proj.js";
 import { Renderer } from "./gpu.js";
 
@@ -27,7 +27,7 @@ const counts = {}, on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis 
 const setCount = () => $("#count").textContent =
   Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} ${k}`).join(" · ") || "no data";
 
-let R, terr;
+let R, terr, cam;
 // a toggle drives the like-named renderer layer; only these two diverge — trams owns
 // the static route line (its dots are gated per-frame by vis()), vehicles is all dynamic.
 const TOG = { trams: ["tram_routes"], vehicles: [] }, tog = (id) => TOG[id] || [id];
@@ -69,6 +69,7 @@ const PT = {
   crime: [[1, 0, 0, 1], 4], faults: [[1, .5, 0, 1], 4], cctv: [[.6, 0, 1, 1], 4],
   stops: [WHITE, 3], trees: [[0, 1, 0, 1], 2.5], air: [[0, 1, 1, 1], 5],
   news: [[1, 1, 0, 1], 6], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [[1, 0, 1, 1], 4],
+  bus_stops: [[1, .55, .85, .7], 2],
 };
 function setPoints(id, features, vis) {
   const a = new Float32Array(features.length * 3);
@@ -154,7 +155,7 @@ function animate(now) {
     const t = at(v.line, v.d);
     v.cur[0] += (t[0] - v.cur[0]) * .12; v.cur[1] += (t[1] - v.cur[1]) * .12;   // ease (smooths re-snaps to live fixes)
     return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles"));
-  R.frame(); requestAnimationFrame(animate);
+  R.frame(); drawLabels(); requestAnimationFrame(animate);
 }
 
 // ─── popups: a positioned div, formatter per pickable layer ───
@@ -164,6 +165,7 @@ const POP = {
   faults: (p) => `<b>${p.fault_status || "reported"}</b><div class="v">${(p.fault_description || "").slice(0, 150)}</div><div class="m">opened ${date(p.fault_open_date)}</div>`,
   cctv: (p) => `<b>CCTV ${p.cam_number || ""}</b><div class="v">${p.location || ""}</div><div class="m">${p.notes || ""}</div>`,
   stops: (p) => `<b>Tram stop</b><div class="v">${p.name || ""}</div>`,
+  bus_stops: (p) => `<b>Bus stop</b><div class="v">${p.name || ""}</div>`,
   trams: (p) => `<b>Supertram ${p.ref || ""}</b><div class="v">${p.name || ""}</div>`,
   vehicles: (p) => `<b>Bus ${p.line || ""}</b><div class="m">${p.operator || ""}</div>`,
   trees: (p) => `<b>Tree</b><div class="v">${p.species || "—"}</div>${p.height ? `<div class="m">${p.height} m</div>` : ""}`,
@@ -181,10 +183,57 @@ function wirePicking() {
   });
 }
 
+// ─── text labels: lowercase jetbrains mono on a 2d overlay, projected each frame ───
+// the only text in an otherwise label-free wireframe — so it stays whisper-quiet:
+// fades in only when zoomed in, greedily skips anything that would overlap, halos
+// each glyph for legibility over the lines. street names ride the road; stops sit
+// beside their dot. drape() lifts each anchor onto the terrain, same as the geometry.
+const lcv = $("#labels"), lx = lcv.getContext("2d"), LDPR = Math.min(devicePixelRatio || 1, 2);
+const streetLabels = [], stopLabels = [];
+function buildStreetLabels(fc) {
+  const seen = new Set();   // one label per name per ~370 m cell, so long roads repeat but don't clutter
+  for (const f of fc.features) { const nm = f.properties?.name; if (!nm) continue;
+    const g = f.geometry, lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
+    for (const ln of lines) { if (ln.length < 2) continue; const i = ln.length >> 1, A = ln[i - 1], B = ln[i];
+      const k = nm + (A[0] * 300 | 0) + "," + (A[1] * 300 | 0); if (seen.has(k)) continue; seen.add(k);
+      streetLabels.push({ a: drape(A[0], A[1], 2), b: drape(B[0], B[1], 2), t: nm.toLowerCase() }); } }
+}
+const buildStopLabels = (id, tint) => { for (const f of reg[id] || []) { const c = f.geometry.coordinates;
+  stopLabels.push({ p: drape(c[0], c[1], 4), t: (f.properties.name || "").toLowerCase(), layer: id, tint }); } };
+
+const fade = (dist, max) => Math.max(0, Math.min(1, (max - dist) / LABELS.fade));
+function glyph(x, y, t, color, alpha, ang) {
+  lx.save(); lx.translate(x, y); if (ang) lx.rotate(ang); const ox = ang ? -lx.measureText(t).width / 2 : 0;
+  lx.globalAlpha = alpha; lx.lineWidth = 3; lx.strokeStyle = "rgba(0,0,0,.6)"; lx.strokeText(t, ox, 0);
+  lx.fillStyle = color; lx.fillText(t, ox, 0); lx.restore();
+}
+function drawLabels() {
+  const w = lcv.clientWidth, h = lcv.clientHeight;
+  if (lcv.width !== (w * LDPR | 0)) { lcv.width = w * LDPR | 0; lcv.height = h * LDPR | 0; }
+  lx.setTransform(LDPR, 0, 0, LDPR, 0, 0); lx.clearRect(0, 0, w, h);
+  const dist = cam.dist; if (dist > LABELS.stop) return;        // labels only at high zoom
+  lx.textBaseline = "middle"; lx.lineJoin = "round";
+  const placed = [], fits = (rx, ry, tw) => { if (rx < 0 || ry < 7 || rx + tw > w || ry + 7 > h) return false;
+    for (const q of placed) if (rx < q[2] && rx + tw > q[0] && ry - 7 < q[3] && ry + 7 > q[1]) return false;
+    placed.push([rx, ry - 7, rx + tw, ry + 7]); return true; };
+  const stopA = fade(dist, LABELS.stop);                        // stops first — they win collisions
+  if (stopA > 0) { lx.font = `500 11px '${LABELS.font}', monospace`;
+    for (const L of stopLabels) { if (!vis(L.layer)) continue; const s = R.screen(L.p[0], L.p[1], L.p[2]); if (!s) continue;
+      const tw = lx.measureText(L.t).width; if (!fits(s[0] + 7, s[1], tw)) continue;
+      glyph(s[0] + 7, s[1], L.t, L.tint, stopA, 0); } }
+  const stA = fade(dist, LABELS.street);                        // then street names fill the gaps
+  if (stA > 0) { lx.font = `400 10px '${LABELS.font}', monospace`;
+    for (const L of streetLabels) { const a = R.screen(L.a[0], L.a[1], L.a[2]), b = R.screen(L.b[0], L.b[1], L.b[2]); if (!a || !b) continue;
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; let ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      if (ang > Math.PI / 2) ang -= Math.PI; else if (ang < -Math.PI / 2) ang += Math.PI;
+      const tw = lx.measureText(L.t).width; if (!fits(mx - tw / 2, my, tw)) continue;
+      glyph(mx, my, L.t, "rgb(196,196,205)", stA * .85, ang); } }
+}
+
 // ─── load everything, build geometry, start ───
 async function layers() {
   const buildingsP = geo("buildings");   // kick off the big (~40 MB) fetch now; fold it last
-  const roads = await geo("roads"); seedRoads(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  const roads = await geo("roads"); seedRoads(roads); buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
   const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
 
   // line/polygon overlays: [id, colour] — file name is the id; boundary is base, the rest toggle.
@@ -192,12 +241,14 @@ async function layers() {
     R.setLine(id, lineWire(await geo(id)), col, id === "boundary" || vis(id));
 
   // point feeds: [id, file, counted?] — counted ones seed the status-bar tally.
+  const cached = new Set(["tram_stops", "bus_stops"]);   // static osm geometry, served from localStorage
   for (const [id, file, n] of [["crime", "crime", 1], ["faults", "faults", 1], ["cctv", "cctv", 1], ["trees", "trees", 1],
-    ["stops", "tram_stops"], ["air", "air"], ["news", "news"], ["rivers", "rivers"]]) {
-    const d = await (file === "tram_stops" ? cgeo : geo)(file);
+    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["rivers", "rivers"]]) {
+    const d = await (cached.has(file) ? cgeo : geo)(file);
     if (n) counts[id] = d.features.length;
     setPoints(id, d.features, vis(id));
   }
+  buildStopLabels("stops", "rgb(238,238,242)"); buildStopLabels("bus_stops", "rgb(255,150,225)");
 
   setPoints("trams", [], vis("trams")); setPoints("vehicles", [], vis("vehicles"));
   buildUI(); poll(); setCount();
@@ -255,7 +306,7 @@ function poll() {
   try {
     terr = new Terrain(); await terr.load();
     const c = CITY.center;
-    const cam = new Camera({ target: [...ll2m(c[0], c[1]), terr.elev(c[0], c[1])],
+    cam = new Camera({ target: [...ll2m(c[0], c[1]), terr.elev(c[0], c[1])],
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
     R = new Renderer($("#gpu"), cam); await R.init();
     window.R = R; window.cam = cam; window.terr = terr;

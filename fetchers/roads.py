@@ -1,6 +1,7 @@
 """the road network from openstreetmap (overpass) — the drawn streets of the
 city, rendered as 1px white wirelines draped on the terrain. primary source,
-no aggregator, no key. no labels: just geometry.
+no aggregator, no key. the `name` tag rides along so the frontend can label
+streets at high zoom.
 
 covers the same box the frontend draws (config.js BBOX). the highway hierarchy
 is filtered to drivable roads (motorway→residential, plus living streets and
@@ -28,6 +29,9 @@ if __name__ == "__main__":
     feats = []
     for el in overpass(Q)["elements"]:
         if (c := line(el.get("geometry", []))):
-            feats.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": c},
-                          "properties": {"class": el.get("tags", {}).get("highway", "")}})
+            t = el.get("tags", {})
+            props = {"class": t.get("highway", "")}
+            if t.get("name"):
+                props["name"] = t["name"]
+            feats.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": c}, "properties": props})
     write("roads.geojson", fc(feats))
