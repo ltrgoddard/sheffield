@@ -210,21 +210,21 @@ function drawLabels() {
 
 // ─── load everything, build geometry, start ───
 async function layers() {
-  const buildingsP = geo("buildings");   // kick off the big (~40 MB) fetch now; fold it last
-  const roads = await geo("roads"); buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
-  const routes = await cgeo("tram_routes"); seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
-
-  // line/polygon overlays: [id, colour] — file name is the id; boundary is base, the rest toggle.
-  for (const [id, col] of [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [0, 1, 0, 1]]])
-    R.setLine(id, lineWire(await geo(id)), col, id === "boundary" || vis(id));
-
-  // point feeds: [id, file]
+  // fire *every* fetch up front so the network runs fully in parallel, then fold each
+  // as it resolves — folding is cpu-bound and cheap next to the round-trips it replaces.
+  const buildingsP = geo("buildings");   // the big (~40 MB) fetch; fold it last
+  const roadsP = geo("roads"), routesP = cgeo("tram_routes");
+  const lineP = [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [0, 1, 0, 1]]]
+    .map(([id, col]) => [id, col, geo(id)]);
   const cached = new Set(["tram_stops", "bus_stops"]);   // static osm geometry, served from localStorage
-  for (const [id, file] of [["crime", "crime"], ["faults", "faults"], ["cctv", "cctv"], ["trees", "trees"],
-    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"]]) {
-    const d = await (cached.has(file) ? cgeo : geo)(file);
-    setPoints(id, d.features, vis(id));
-  }
+  const ptP = [["crime", "crime"], ["faults", "faults"], ["cctv", "cctv"], ["trees", "trees"],
+    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"]]
+    .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
+
+  const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
+  for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));
+  for (const [id, p] of ptP) setPoints(id, (await p).features, vis(id));
   buildStopLabels("stops", "rgb(238,238,242)"); buildStopLabels("bus_stops", "rgb(255,150,225)");
 
   setPoints("trams", [], vis("trams")); setPoints("vehicles", [], vis("vehicles"));
@@ -293,4 +293,5 @@ function poll() {
   } catch (e) {
     $("#nogpu").style.display = "block"; $("#nogpu").textContent = "this view needs a webgpu browser — " + e.message;
   }
+  $("#splash").classList.add("gone");   // everything's loaded (or failed) — fade the black away, city + legend in
 })();
