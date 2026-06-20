@@ -1,6 +1,6 @@
 // glue: load the open data, fold it into gpu geometry, run the live feeds and the ui.
 // the whole contract is still data/*.geojson — only the renderer changed.
-import { CITY, FEEDS, LAYERS, TRAM } from "./config.js";
+import { CITY, FEEDS, GROUPS, TRAM } from "./config.js";
 import { Camera, Terrain, ll2m } from "./proj.js";
 import { Renderer } from "./gpu.js";
 
@@ -10,13 +10,14 @@ const empty = { type: "FeatureCollection", features: [] };
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
 const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1];
-const counts = {}, on = new Set(LAYERS.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
+const FLAT = GROUPS.flatMap(([, , items]) => items);
+const counts = {}, on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 const setCount = () => $("#count").textContent =
   Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} ${k}`).join(" · ") || "no data";
 
 let R, terr;
 // static toggle id → renderer layer ids; trams/vehicles are dynamic, gated by vis() each frame.
-const TOG = { terrain: ["terrain"], buildings: ["buildings"], roads: ["roads"], trams: ["tram_routes"], stops: ["stops"],
+const TOG = { trams: ["tram_routes"], stops: ["stops"],
   vehicles: [], cctv: ["cctv"], faults: ["faults"], crime: ["crime"], wards: ["wards"], clean_air: ["clean_air"],
   trees: ["trees"], air: ["air"], news: ["news"], rivers: ["rivers"], planning: ["planning"] };
 
@@ -138,8 +139,8 @@ function wirePicking() {
 
 // ─── load everything, build geometry, start ───
 async function layers() {
-  R.setLine("buildings", buildingWire(await geo("buildings")), WHITE, vis("buildings"));
-  R.setLine("roads", lineWire(await geo("roads")), [1, 1, 1, .5], vis("roads"));
+  R.setLine("buildings", buildingWire(await geo("buildings")), WHITE, true);
+  R.setLine("roads", lineWire(await geo("roads")), [1, 1, 1, .5], true);
 
   const routes = await geo("tram_routes"); seedTrams(routes);
   R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
@@ -162,14 +163,24 @@ async function layers() {
 }
 
 // ─── ui: toggles + legend ───
+const set = (id, s) => { s ? on.add(id) : on.delete(id);
+  $(`.row[data-id="${id}"]`)?.classList.toggle("on", s); (TOG[id] || []).forEach((l) => R.setVisible(l, s)); };
+const grpItems = (gid) => GROUPS.find((g) => g[0] === gid)[2];
 function buildUI() {
-  $("#toggles").innerHTML = LAYERS.map(([id, label]) =>
-    `<div class="row ${vis(id) ? "on" : ""}" data-id="${id}">${label}<span class="tk"></span></div>`).join("");
-  $("#toggles").querySelectorAll(".row").forEach((row) => {
-    const id = row.dataset.id;
-    row.onclick = () => { const s = !on.has(id); s ? on.add(id) : on.delete(id);
-      row.classList.toggle("on", s); (TOG[id] || []).forEach((l) => R.setVisible(l, s)); syncLegend(); };
+  $("#toggles").innerHTML = GROUPS.map(([gid, glabel, items]) =>
+    `<div class="gh" data-grp="${gid}">${glabel}<span class="tk"></span></div>` +
+    items.map(([id, label]) => `<div class="row" data-id="${id}">${label}<span class="tk"></span></div>`).join("")).join("");
+  $("#toggles").querySelectorAll(".row").forEach((row) =>
+    row.onclick = () => { set(row.dataset.id, !on.has(row.dataset.id)); sync(); });
+  $("#toggles").querySelectorAll(".gh").forEach((gh) => gh.onclick = () => {
+    const items = grpItems(gh.dataset.grp), s = !items.every((i) => vis(i[0]));
+    items.forEach((i) => set(i[0], s)); sync();
   });
+  sync();
+}
+function sync() {
+  $("#toggles").querySelectorAll(".gh").forEach((gh) =>
+    gh.classList.toggle("on", grpItems(gh.dataset.grp).every((i) => vis(i[0]))));
   syncLegend();
 }
 function syncLegend() {
@@ -203,8 +214,7 @@ function poll() {
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
     R = new Renderer($("#gpu"), cam); await R.init();
     window.R = R; window.cam = cam; window.terr = terr;
-    if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .13], vis("terrain"));
-    $("#brand p").textContent = terr.ok ? "ea lidar terrain · openstreetmap · open data" : "no terrain — run lidar.py · openstreetmap · open data";
+    if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .13], true);
     wirePicking(); await layers();
   } catch (e) {
     $("#nogpu").style.display = "block"; $("#nogpu").textContent = "this view needs a webgpu browser — " + e.message;

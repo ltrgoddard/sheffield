@@ -41,9 +41,11 @@ export const GROUPS = [
     ["cctv", "cctv cameras", false],
     ["faults", "fault reports", false],
     ["crime", "crime", false],
-    ["planning", "development sites", false],
     ["news", "city news", false],
+  ]],
+  ["administrative", "administrative", [
     ["wards", "wards", false],
+    ["planning", "development sites", false],
   ]],
 ];
 
