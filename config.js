@@ -72,4 +72,6 @@ export const TRAM = { service: [6, 24], off: 20, size: 5.5, // [start,end]h, min
 // text labels (lowercase jetbrains mono on a 2d overlay) fade in only when zoomed in,
 // keyed off camera distance in metres: street names below `street`, stop names below
 // `stop`; each fades over the last `fade` of that range. understated, decluttered.
-export const LABELS = { street: 1100, stop: 1700, fade: 350, font: "JetBrains Mono" };
+// `nearStreet` also caps street names to those within that radius (m) of the camera
+// focus, so distant roads near the horizon don't pile up as unreadable clutter.
+export const LABELS = { street: 1100, stop: 1700, fade: 350, nearStreet: 700, font: "JetBrains Mono" };
