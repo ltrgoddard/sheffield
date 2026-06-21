@@ -11,7 +11,7 @@ export                                   # hand .env (ANTHROPIC_API_KEY) to the 
 MAKEFLAGS += -j 8                        # feeds are independent; fetch them concurrently
 PY    := uv run --quiet python
 PORT  ?= 8000
-FEEDS := transit bus_stops buildings roads crime council rivers trees planning news reddit tribune air cadent
+FEEDS := transit bus_stops buildings roads crime council rivers trees planning news reddit tribune air cadent pipelines
 
 .PHONY: all data $(FEEDS) manifest lidar serve clean
 all: data

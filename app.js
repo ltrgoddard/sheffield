@@ -27,6 +27,8 @@ const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() 
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
 const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6], BLDG = [.62, .64, .68, .8];
+// osm trunk pipelines (pipelines.geojson), split by `kind` into one toggleable line layer each.
+const PIPE = [["gas_nts", "gas", [1, .3, .12, .9]], ["water_mains", "water", [.3, .7, 1, .7]], ["fuel", "fuel", [.85, .85, .2, .85]]];
 const FLAT = GROUPS.flatMap(([, , items]) => items);
 const on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 
@@ -243,7 +245,7 @@ async function layers() {
   // fire *every* fetch up front so the network runs fully in parallel, then fold each
   // as it resolves — folding is cpu-bound and cheap next to the round-trips it replaces.
   const buildingsP = bin("buildings");   // the big fetch (packed gpu buffer); fold it last
-  const gasP = bin("gas_pipes");
+  const gasP = bin("gas_pipes"), pipesP = geo("pipelines");
   const roadsP = geo("roads"), routesP = cgeo("tram_routes");
   const lineP = [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [0, 1, 0, 1]]]
     .map(([id, col]) => [id, col, geo(id)]);
@@ -253,6 +255,8 @@ async function layers() {
     .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
 
   load("infra"); R.setLine("gas_pipes", lineBin(await gasP), GAS, vis("gas_pipes"));
+  const trunk = (await pipesP).features;   // osm trunk pipelines, one line layer per kind
+  for (const [id, k, col] of PIPE) R.setLine(id, lineWire({ features: trunk.filter((f) => f.properties.kind === k) }), col, vis(id));
   load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], vis("roads"));
   load("trams"); const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
   load("districts"); for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));

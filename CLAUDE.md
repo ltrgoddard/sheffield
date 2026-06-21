@@ -87,7 +87,7 @@ all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
   tribune, crime, council, planning, trees), re-zips, re-uploads the release, then triggers a
   redeploy. Needs `permissions: contents: write` — `read` lets it download the release but the
   `gh release upload --clobber` 403s without write. The heavy static layers (buildings `.bin`,
-  roads, trams, `terrain.bin`, **gas pipes `.bin` + sites**) carry over from the release untouched —
+  roads, trams, `terrain.bin`, **gas pipes `.bin` + sites**, **trunk pipelines**) carry over from the release untouched —
   rebuild those locally with `make` + `make lidar` and `gh release upload latest-data data.zip
   --clobber` when they need refreshing. Note the frontend fetches `buildings.bin`/`gas_pipes.bin`
   (not geojson) for those layers, so the release must carry the `.bin` — a release missing it 404s
@@ -154,6 +154,14 @@ all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
   bbox, all `MultiLineString`) — packed to `gas_pipes.bin`; above-ground sites from
   `above-ground-infrastructure-assets-open` (Points) → `gas_assets.geojson`. NB **Sheffield itself is
   Northern Gas Networks**, not Cadent — coverage is only the eastern/rotherham fringe of the bbox.
+- **Trunk pipelines (osm, no key)**: `pipelines.py` is the *transmission* complement to cadent's
+  *distribution* — one overpass `man_made=pipeline` query over the bbox, split by `substance`/`usage`
+  into three `kind`s the frontend draws as separate toggleable line layers: `gas` (the uk **national
+  transmission system** — national gas's high-pressure backbone, `usage=transmission`), `water` (severn
+  trent / yorkshire water trunk mains) and `fuel` (the exolum multi-product line). All written to one
+  small `pipelines.geojson` (~30 kb, drawn with `lineWire`, no `.bin`); app.js's `PIPE` table maps each
+  kind → layer id + colour. Distribution-pressure gas (overlaps cadent) and minor industrial lines
+  (oxygen/cement/sewage/heat) are dropped.
 - **EA LIDAR WCS** (no key!): two subsets `&subset=E(a,b)&subset=N(c,d)` must be hand-appended
   (urlencode can't hold duplicate keys); `&scalefactor=` downsamples; axis labels `E N`, EPSG:27700.
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.

@@ -23,6 +23,7 @@ export const FEEDS = {
   tribune: 9e5,             // sheffield tribune posts (ghost api → llm/gazetteer)
   wards: 0, boundary: 0, clean_air: 0,
   gas_pipes: 0, gas_assets: 0,   // cadent gas network (mains/services .bin + above-ground sites)
+  pipelines: 0,                  // osm trunk pipelines — nts gas backbone, water mains, fuel
 };
 
 // toggleable layers, grouped — each group toggles as a whole or per item: [id, label, on?].
@@ -60,6 +61,9 @@ export const GROUPS = [
   ["infra", "infra", [
     ["gas_pipes", "gas pipes", false],
     ["gas_assets", "gas sites", false],
+    ["gas_nts", "gas transmission (nts)", false],
+    ["water_mains", "water mains", false],
+    ["fuel", "fuel pipeline", false],
   ]],
 ];
 
