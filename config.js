@@ -52,7 +52,7 @@ export const GROUPS = [
     ["wards", "wards", false],
     ["planning", "development sites", false],
   ]],
-  ["infrastructure", "infrastructure", [
+  ["infra", "infra", [
     ["gas_pipes", "gas pipes", false],
     ["gas_assets", "gas sites", false],
   ]],
