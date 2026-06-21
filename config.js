@@ -44,7 +44,7 @@ export const GROUPS = [
     ["rivers", "river levels", false],
     ["air", "air quality", false],
     ["trees", "trees", false],
-    ["clean_air", "clean air zone", false],
+    ["clean_air", "c.a.z.", false],
   ]],
   ["events", "events", [
     ["cctv", "cctv", false],
@@ -61,7 +61,6 @@ export const GROUPS = [
   ["infra", "utilities", [
     ["gas_pipes", "gas pipes", false],
     ["gas_assets", "gas sites", false],
-    ["gas_nts", "gas transmission", false],
     ["water_mains", "water mains", false],
     ["fuel", "fuel pipeline", false],
   ]],
