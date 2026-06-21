@@ -4,7 +4,7 @@ gpu renderer extrudes into wireframes. primary source, no aggregator, no key.
 covers the same box the frontend draws (config.js BBOX). heights come from
 the `height` tag, else `building:levels`×3, else a sensible default.
 """
-from common import overpass, fc, write, log
+from common import overpass, packbin, log
 
 # sheffield's full administrative boundary bbox — keep in step with BBOX in config.js (s, w, n, e).
 S, W, N, E = 53.304, -1.802, 53.504, -1.324
@@ -49,4 +49,6 @@ if __name__ == "__main__":
             for m in el.get("members", []):
                 if m.get("role") == "outer" and (r := ring(m.get("geometry", []))):
                     feats.append(feature(r, t))
-    write("buildings.geojson", fc(feats))
+    # ~12k footprints, 1.1M vertices — pack straight to a gpu buffer (was a 44 MB geojson).
+    packbin("buildings.bin", feats, lambda g: g["coordinates"],
+            lambda f: (f["properties"]["height"], f["properties"]["min_height"]))

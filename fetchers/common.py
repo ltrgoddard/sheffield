@@ -5,7 +5,7 @@ frontend polls. all sources are primary: openstreetmap, data.police.uk, the
 sheffield city council arcgis server, the dft bus open data service and the
 environment agency. no aggregators.
 """
-import json, time, pathlib, os, urllib.request, urllib.parse, urllib.error, sys
+import json, time, pathlib, os, struct, urllib.request, urllib.parse, urllib.error, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -67,6 +67,33 @@ def write(name, obj):
     os.replace(tmp, p)
     n = len(obj.get("features", [])) if isinstance(obj, dict) else 0
     log(f"  → {name}  {n} features, {p.stat().st_size // 1024} kb")
+    return p
+
+
+def packbin(name, features, lines, heights=None):
+    """pack polyline/ring geometry straight into a gpu buffer — no json for the
+    browser to parse, ~5-11× smaller raw than geojson. layout (little-endian):
+      u32 nFeatures; per feature: f32 h, f32 b, u32 nParts;
+      per part: u32 nVerts, then nVerts × (i32 lon, i32 lat) ×1e6 (~0.1 m grid).
+    `lines(geom)`→iterable of coord lists; `heights(feat)`→(h,b) for extruded
+    wireframes, else flat. atomic temp-then-rename like write()."""
+    out, nf = bytearray(), 0
+    for f in features:
+        parts = [ln for ln in lines(f["geometry"]) if len(ln) >= 2]
+        if not parts:
+            continue
+        h, b = heights(f) if heights else (0.0, 0.0)
+        out += struct.pack("<ffI", h, b, len(parts))
+        for ln in parts:
+            flat = [round(c * 1e6) for xy in ln for c in xy[:2]]
+            out += struct.pack(f"<I{len(flat)}i", len(ln), *flat)
+        nf += 1
+    DATA.mkdir(exist_ok=True)
+    p, tmp = DATA / name, DATA / (name + ".tmp")
+    tmp.write_bytes(struct.pack("<I", nf) + out)
+    os.replace(tmp, p)
+    (DATA / (p.stem + ".geojson")).unlink(missing_ok=True)  # a layer is bin xor geojson — drop any superseded geojson
+    log(f"  → {name}  {nf} features, {p.stat().st_size // 1024} kb")
     return p
 
 

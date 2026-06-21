@@ -14,12 +14,15 @@ The whole city is drawn as **1px lines** — terrain as a lifted wire grid, buil
 wireframes, feeds as billboarded line-markers — straight from open data onto the GPU.
 (One exception to the file contract: **live buses** are fetched in the browser straight from
 bustimes.org — a cors-enabled, no-key json feed — so they're live with no backend at all.)
+The **heavy geometry** (buildings, gas pipes) is the one *format* exception: it ships as a
+packed binary `data/*.bin` gpu buffer, not geojson, so the browser parses no megabytes of json
+(buildings was a 44 MB geojson → an 11 MB `.bin`; gas pipes 38 MB → 4 MB). See `common.packbin`.
 
 ```
 index.html  app.js  config.js  style.css   # frontend
 gpu.js      proj.js                         # webgpu device/pipelines + projection/camera/terrain
 fetchers/   common.py + one script per source
-data/       geojson the fetchers write (gitignored; lives in the `latest-data` release)
+data/       geojson + packed .bin the fetchers write (gitignored; lives in the `latest-data` release)
 Makefile    data orchestration (`make`, `make lidar`, `make serve`)
 .github/workflows/  deploy.yml (pages) + sync.yml (cron refresh → release → redeploy)
 pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY for news llm (gitignored)
@@ -39,7 +42,9 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
   two-finger pinch-twist-tilt on touch), and cpu-side `pick()`. API:
   `setLine`/`setMark`/`setVisible`/`frame`/`pick`/`screen` (world→css-px for the label overlay).
 - **app.js** — loads each feed, folds geojson into flat float32 line/point arrays in metres
-  (`buildingWire`/`lineWire`/`setPoints`), runs `animate()` (rAF loop moving trams +
+  (`lineWire`/`setPoints`) — or, for the packed `.bin` layers, reads the buffer straight through
+  with no json parse (`bin()`→`feats()`→`lineBin`/`buildingBin`, the binary twins that drape +
+  clip exactly as the geojson builders do). Runs `animate()` (rAF loop moving trams +
   interpolating live buses, then `drawLabels()`) and `poll()`, wires the toggles + popups.
   **Labels** (`drawLabels`) are the only text: lowercase JetBrains Mono on a 2d `#labels`
   overlay, projected via `R.screen()` each frame, fading in only at high zoom (`LABELS` in
@@ -48,7 +53,9 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
 - **fetchers/common.py** — `fetch`/`get_json` (urllib + retries + UA; accepts a raw
   bytes body for JSON POSTs), `overpass`, `arcgis` (paged geojson), `llm` (zero-dep
   llm call — free OpenRouter when `OPENROUTER_API_KEY` is set, else Anthropic), `write` (**atomic** temp-then-rename so
-  the poller never sees a half file). Everything writes compact EPSG:4326 geojson.
+  the poller never sees a half file) and `packbin` (the same atomic write for a packed gpu
+  buffer: `u32 nFeatures`, then per feature `f32 h, f32 b, u32 nParts`, then per part `u32
+  nVerts` + int32 lon/lat ×1e6 — a ~0.1 m grid). Everything writes compact EPSG:4326 geojson, or a `.bin`.
 - **Makefile** runs every fetcher under `uv` **in parallel** (`make` = `-j 8`; each independent,
   one failing never aborts the rest) then `manifest.py`, which writes `data/manifest.json` — a
   per-feed freshness index (feature count, size, age) for the frontend status and ops. Python is
@@ -70,15 +77,18 @@ Terrain + 12k building wireframes decode in the first second — wait before jud
 ## Deployment — GitHub Pages, no server
 
 Frontend lives in git; **data lives in the `latest-data` GitHub Release** (a `data.zip` of
-all of `data/`, geojson + terrain). Two workflows:
+all of `data/`, geojson + packed `.bin` + terrain). Two workflows:
 - **deploy.yml** (push to main / dispatch) — assembles `_site` = frontend + the release's
   data and publishes it to Pages (live at `ltrg.co.uk/sheffield`).
 - **sync.yml** (cron, daily) — re-fetches the *refreshable* feeds (rivers, air, news, reddit,
   tribune, crime, council, planning, trees), re-zips, re-uploads the release, then triggers a
   redeploy. Needs `permissions: contents: write` — `read` lets it download the release but the
-  `gh release upload --clobber` 403s without write. The heavy static layers (buildings, roads,
-  trams, terrain) carry over from the release untouched — rebuild those locally with `make` +
-  `make lidar` and `gh release upload latest-data data.zip --clobber` when they need refreshing.
+  `gh release upload --clobber` 403s without write. The heavy static layers (buildings `.bin`,
+  roads, trams, terrain, **gas pipes `.bin` + sites**) carry over from the release untouched —
+  rebuild those locally with `make` + `make lidar` and `gh release upload latest-data data.zip
+  --clobber` when they need refreshing. (After this change the live release still holds the old
+  `buildings.geojson`, not `buildings.bin`/`gas_pipes.bin` — re-run `make` and re-upload once, or
+  buildings/gas will 404 to empty on the deployed site.)
   Live buses aren't in the cron at all (the browser pulls them direct from bustimes.org).
 
 ## Conventions
@@ -87,7 +97,8 @@ all of `data/`, geojson + terrain). Two workflows:
 - **Adding a feed:** write `fetchers/foo.py` that emits `data/foo.geojson`; add it to
   `FEEDS` + `LAYERS` in config.js; in app.js `layers()` call `setPoints("foo", …)` for points
   (add a `PT` style + `POP` popup + `TOG` entry) or `R.setLine("foo", lineWire(…), …)` for
-  lines/polygons. Done.
+  lines/polygons. Done. For a *heavy* line/wire layer, emit a `.bin` instead (`packbin` in the
+  fetcher, `R.setLine("foo", lineBin(await bin("foo")), …)` in app.js) so there's no json to parse.
 - Prefer **primary sources over aggregators** (this was an explicit ask — e.g. the council's
   own ArcGIS over PlanIt).
 
@@ -133,6 +144,14 @@ all of `data/`, geojson + terrain). Two workflows:
   but the plain **atom feed** `reddit.com/r/sheffield/.rss` serves fine — once you ride out
   reddit's burst **429s** (it throttles rapid hits, ~15 s; `reddit.py` passes `tries=6` so
   `common.fetch`'s backoff clears them). Atom namespace `{http://www.w3.org/2005/Atom}`.
+- **Cadent gas (opendatasoft, `CADENT_API_KEY`)**: `cadent.py` pulls the gas distribution network
+  from `cadentgas.opendatasoft.com` via the ods v2.1 **geojson export** endpoint
+  (`/exports/geojson?where=in_bbox(geo_point_2d,s,w,n,e)&apikey=`) — one shot, no paging. Our key
+  is the **free open tier**: the `*_open` datasets work, the `*_shared` ones 403 (`ForbiddenAccess`).
+  Pipes come from the combined national `gas-pipe-infrastructure-gpi_open` (~55k segments in the
+  bbox, all `MultiLineString`) — packed to `gas_pipes.bin`; above-ground sites from
+  `above-ground-infrastructure-assets-open` (Points) → `gas_assets.geojson`. NB **Sheffield itself is
+  Northern Gas Networks**, not Cadent — coverage is only the eastern/rotherham fringe of the bbox.
 - **EA LIDAR WCS** (no key!): two subsets `&subset=E(a,b)&subset=N(c,d)` must be hand-appended
   (urlencode can't hold duplicate keys); `&scalefactor=` downsamples; axis labels `E N`, EPSG:27700.
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.
