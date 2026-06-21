@@ -23,7 +23,8 @@ const BUSES = `https://bustimes.org/vehicles.json?xmin=${BBOX.w}&ymin=${BBOX.s}&
 const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() => [])
   .then((vs) => ({ type: "FeatureCollection", features: (vs || []).map((v) => ({
     type: "Feature", geometry: { type: "Point", coordinates: v.coordinates },
-    properties: { vehicle: v.id, line: v.service?.line_name || "", operator: v.vehicle?.name || "" } })) }));
+    properties: { vehicle: v.id, line: v.service?.line_name || "", dest: v.destination || "",
+      fleet: v.vehicle?.name || "", kind: v.vehicle?.features || "" } })) }));
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
 const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6], BLDG = [.62, .64, .68, .8];
@@ -164,20 +165,23 @@ function animate(now) {
 
 // ─── popups: a positioned div, formatter per pickable layer ───
 const date = (ms) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const ago = (iso) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const link = (p) => p.link ? `<a href="${p.link}" target="_blank" rel="noopener">${p.title || "open"}</a>` : (p.title || "");
+const TRAMLINE = { BLUE: "Blue", YELL: "Yellow", PURP: "Purple", TT: "Tram-train" };
 const POP = {
   crime: (p) => `<b>${p.category}</b><div class="v">${p.street || "—"}</div><div class="m">${p.outcome || "under investigation"} · ${p.month}</div>`,
   faults: (p) => `<b>${p.fault_status || "reported"}</b><div class="v">${(p.fault_description || "").slice(0, 150)}</div><div class="m">opened ${date(p.fault_open_date)}</div>`,
   cctv: (p) => `<b>CCTV ${p.cam_number || ""}</b><div class="v">${p.location || ""}</div><div class="m">${p.notes || ""}</div>`,
-  stops: (p) => `<b>Tram stop</b><div class="v">${p.name || ""}</div>`,
-  bus_stops: (p) => `<b>Bus stop</b><div class="v">${p.name || ""}</div>`,
+  stops: (p) => `<b>Tram stop</b><div class="v">${p.name || ""}</div>${p.lines?.length ? `<div class="m">${p.lines.map((l) => TRAMLINE[l] || l).join(" · ")} line</div>` : ""}`,
+  bus_stops: (p) => `<b>Bus stop${p.bearing ? " · faces " + p.bearing : ""}</b><div class="v">${p.name || ""}</div>${(p.street || p.towards) ? `<div class="m">${[p.street, p.towards].filter(Boolean).join(" · ")}</div>` : ""}`,
   trams: (p) => `<b>Supertram ${p.ref || ""}</b><div class="v">${p.name || ""}</div>`,
-  vehicles: (p) => `<b>Bus ${p.line || ""}</b><div class="m">${p.operator || ""}</div>`,
+  vehicles: (p) => `<b>Bus ${p.line || "?"}${p.dest ? " → " + p.dest : ""}</b>${(p.fleet || p.kind) ? `<div class="m">${[p.fleet, p.kind].filter(Boolean).join(" · ")}</div>` : ""}`,
   trees: (p) => `<b>Tree</b><div class="v">${p.species || "—"}</div>${p.height ? `<div class="m">${p.height} m</div>` : ""}`,
-  air: (p) => `<b>Air · AQI ${p.aqi ?? "—"}</b><div class="v">PM2.5 ${p.pm25 ?? "—"} · NO₂ ${p.no2 ?? "—"}</div>`,
-  news: (p) => `<b>${p.category || "News"}</b><div class="v">${p.title || ""}</div><div class="m">${p.place || ""}</div>`,
-  reddit: (p) => `<b>r/sheffield · ${p.category || "post"}</b><div class="v">${p.title || ""}</div><div class="m">${p.place || ""}</div>`,
-  tribune: (p) => `<b>sheffield tribune${p.place ? " · " + p.place : ""}</b><div class="v"><a href="${p.link}" target="_blank" rel="noopener">${p.title || ""}</a></div><div class="m">${p.summary || ""}</div>`,
-  rivers: (p) => `<b>River gauge</b><div class="v">${p.name || p.river || p.label || ""}</div><div class="m">${p.level ?? p.value ?? ""}</div>`,
+  air: (p) => `<b>Air · AQI ${p.aqi ?? "—"}</b><div class="v">PM2.5 ${p.pm25 ?? "—"} · PM10 ${p.pm10 ?? "—"} · NO₂ ${p.no2 ?? "—"} · O₃ ${p.o3 ?? "—"}</div>${p.at ? `<div class="m">${ago(p.at)}</div>` : ""}`,
+  news: (p) => `<b>${p.category || "News"}</b><div class="v">${link(p)}</div><div class="m">${p.summary || p.place || ""}</div>`,
+  reddit: (p) => `<b>r/sheffield · ${p.category || "post"}</b><div class="v">${link(p)}</div><div class="m">${p.place || ""}</div>`,
+  tribune: (p) => `<b>sheffield tribune${p.place ? " · " + p.place : ""}</b><div class="v">${link(p)}</div><div class="m">${p.summary || ""}</div>`,
+  rivers: (p) => `<b>${p.river || "River gauge"}</b><div class="v">${p.label || ""}${p.level != null ? " · " + p.level + " m" : ""}</div>${(p.ratio != null || p.at) ? `<div class="m">${p.ratio != null ? Math.round(p.ratio * 100) + "% of typical max" : ""}${p.at ? (p.ratio != null ? " · " : "") + ago(p.at) : ""}</div>` : ""}`,
   gas_assets: (p) => `<b>Gas · above-ground site</b><div class="m">${p.description || ""}</div>`,
 };
 function wirePicking() {
