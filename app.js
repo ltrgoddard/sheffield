@@ -238,8 +238,16 @@ function pipe(label) {   // shared formatter for the osm trunk lines (gas nts / 
 }
 function wirePicking() {
   const el = $("#popup"), gpu = $("#gpu");
-  let dx = 0, dy = 0;
+  let dx = 0, dy = 0, hoverPend = false;
   gpu.addEventListener("pointerdown", (e) => { dx = e.clientX; dy = e.clientY; });
+  // hover feedback: cursor → pointer over a clickable marker or building (cpu pick, one per frame).
+  gpu.addEventListener("pointermove", (e) => {
+    if (e.buttons || hoverPend) return; hoverPend = true;                  // skip while dragging
+    requestAnimationFrame(() => { hoverPend = false;
+      const m = R.pick(e.clientX, e.clientY);
+      gpu.style.cursor = (m && POP[m.id]) || pickBuilding(e.clientX, e.clientY) ? "pointer" : "";
+    });
+  });
   gpu.addEventListener("click", (e) => {
     if (Math.hypot(e.clientX - dx, e.clientY - dy) > 6) return;   // a drag, not a click — leave selection be
     const hit = R.pick(e.clientX, e.clientY);
@@ -279,14 +287,23 @@ const pip = (x, y, r) => { let c = false; for (let i = 0, j = r.length - 1; i < 
   if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
 const polyArea = (ring) => { const M = ring.map(([a, b]) => ll2m(a, b)); let a = 0;
   for (let i = 0, j = M.length - 1; i < M.length; j = i++) a += M[j][0] * M[i][1] - M[i][0] * M[j][1]; return Math.abs(a) / 2; };
-// the ground point under the cursor → the tallest footprint that contains it.
+// true 3d pick: march the cursor ray through each footprint's extruded prism (terrain base→roof)
+// and keep the building it enters closest to the camera. the old flat-plane intersect ignored both
+// per-building terrain height and building height, so at our oblique pitch a clicked roof projected
+// well past its real footprint — missing, or selecting a building behind it.
 function pickBuilding(cx, cy) {
   if (!vis("buildings") || !bldgs.length) return null;
-  const c = gpuEl(), w = c.clientWidth, h = c.clientHeight;
-  const [mx, my] = cam.ground(cx / w * 2 - 1, 1 - cy / h * 2, w / h), [lng, lat] = m2ll(mx, my);
-  let best = null;
-  for (const it of bldgs) { const b = it.bb; if (lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) continue;
-    if (pip(lng, lat, it.ring) && (!best || it.H > best.H)) best = it; }
+  const c = gpuEl(), w = c.clientWidth, h = c.clientHeight, e = cam.eye();
+  const d = cam.dir(cx / w * 2 - 1, 1 - cy / h * 2, w / h);
+  let best = null, bestS = Infinity;
+  for (const it of bldgs) { const b = it.bb, g = terr.elev((b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
+    for (let k = 0; k <= 4; k++) {                              // sample heights base→roof along the prism
+      const s = (g + it.B + (it.H - it.B) * k / 4 - e[2]) / d[2]; if (s < 0 || s >= bestS) continue;
+      const [lng, lat] = m2ll(e[0] + s * d[0], e[1] + s * d[1]);
+      if (lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) continue;
+      if (pip(lng, lat, it.ring)) { best = it; bestS = s; break; }
+    }
+  }
   return best;
 }
 // minimal o(n²) ear-clipping (footprints are tiny) → roof-cap triangles; ccw-normalised.
@@ -483,7 +500,7 @@ function poll() {
     cam = new Camera({ target: [...ll2m(c[0], c[1]), terr.elev(c[0], c[1])],
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
     R = new Renderer($("#gpu"), cam); await R.init();
-    window.R = R; window.cam = cam; window.terr = terr; window.lineReg = lineReg; window.pickLine = pickLine;
+    window.R = R; window.cam = cam; window.terr = terr; window.pickBuilding = pickBuilding; window.lineReg = lineReg; window.pickLine = pickLine;
     if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], vis("terrain"));
     $("#bar").onclick = () => $("#panel").classList.toggle("folded");
     wirePicking(); requestAnimationFrame(animate); await layers();   // paint from frame one; layers stream in
