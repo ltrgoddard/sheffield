@@ -52,7 +52,7 @@ export const GROUPS = [
     ["crime", "crime", false],
     ["news", "city news", false],
     ["reddit", "r/sheffield", false],
-    ["tribune", "sheffield tribune", true],
+    ["tribune", "sheffield tribune", false],
   ]],
   ["administrative", "government", [
     ["wards", "wards", false],
@@ -61,7 +61,7 @@ export const GROUPS = [
   ["infra", "infra", [
     ["gas_pipes", "gas pipes", false],
     ["gas_assets", "gas sites", false],
-    ["gas_nts", "gas transmission (nts)", false],
+    ["gas_nts", "gas transmission", false],
     ["water_mains", "water mains", false],
     ["fuel", "fuel pipeline", false],
   ]],
