@@ -29,11 +29,12 @@ export class Camera {
     return [this.target[0] + h * Math.sin(this.az), this.target[1] - h * Math.cos(this.az),
       this.target[2] + this.dist * Math.cos(this.pitch)]; }
   vp(asp) { return mul(persp(this.fov * D, asp, 1, 1e5), lookAt(this.eye(), this.target, [0, 0, 1])); }
-  // world x/y where the cursor ray (ndc nx,ny) meets the target's ground plane — for zoom-to-cursor.
-  ground(nx, ny, asp) { const e = this.eye(), z = norm(sub(e, this.target)), x = norm(cross([0, 0, 1], z)),
-    y = cross(z, x), t = Math.tan(this.fov * D / 2),
-    d = [nx * t * asp * x[0] + ny * t * y[0] - z[0], nx * t * asp * x[1] + ny * t * y[1] - z[1], nx * t * asp * x[2] + ny * t * y[2] - z[2]],
-    s = (this.target[2] - e[2]) / d[2];
+  // world-space direction of the cursor ray (ndc nx,ny) from the eye — shared by ground() + picking.
+  dir(nx, ny, asp) { const z = norm(sub(this.eye(), this.target)), x = norm(cross([0, 0, 1], z)),
+    y = cross(z, x), t = Math.tan(this.fov * D / 2);
+    return [nx * t * asp * x[0] + ny * t * y[0] - z[0], nx * t * asp * x[1] + ny * t * y[1] - z[1], nx * t * asp * x[2] + ny * t * y[2] - z[2]]; }
+  // world x/y where that ray meets the target's ground plane — for zoom-to-cursor.
+  ground(nx, ny, asp) { const e = this.eye(), d = this.dir(nx, ny, asp), s = (this.target[2] - e[2]) / d[2];
     return [e[0] + s * d[0], e[1] + s * d[1]]; }
 }
 
