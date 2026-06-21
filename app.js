@@ -67,14 +67,20 @@ function* feats(buf) {   // yield { h, b, parts:[Int32Array] } per feature — c
     yield { h, b, parts };
   }
 }
-function lineBin(buf) {            // flat polylines (gas pipes) — the binary twin of lineWire
-  const p = []; if (!buf) return new Float32Array(p);
-  for (const { parts } of feats(buf)) for (const c of parts)
-    for (let i = 0; i < c.length - 2; i += 2) {
+// viridis ramp (10 anchors, lerped) — tints gas pipes by install age.
+const VIRIDIS = [[68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142], [38, 130, 142], [31, 158, 137], [53, 183, 121], [110, 206, 88], [181, 222, 43], [253, 231, 37]];
+function viridis(t) { const x = Math.max(0, Math.min(1, t)) * 9, i = x | 0, f = x - i, a = VIRIDIS[i], b = VIRIDIS[Math.min(i + 1, 9)];
+  return [0, 1, 2].map((k) => (a[k] + (b[k] - a[k]) * f) / 255); }
+const ageTint = (h) => h < 0 ? [.5, .5, .55, .45] : [...viridis(h), .85];   // h<0 = undated pipe → dim grey
+
+function lineBin(buf, tint) {       // flat polylines (gas pipes) — the binary twin of lineWire; tint(h)→rgba paints each vertex
+  const p = [], cols = tint ? [] : null; if (!buf) return { pos: new Float32Array(p), cols };
+  for (const { h, parts } of feats(buf)) { const col = tint && tint(h);
+    for (const c of parts) for (let i = 0; i < c.length - 2; i += 2) {
       const ax = c[i] / 1e6, ay = c[i + 1] / 1e6, bx = c[i + 2] / 1e6, by = c[i + 3] / 1e6;
-      if (inside(ax, ay) && inside(bx, by)) p.push(...drape(ax, ay, 2), ...drape(bx, by, 2));
-    }
-  return new Float32Array(p);
+      if (inside(ax, ay) && inside(bx, by)) { p.push(...drape(ax, ay, 2), ...drape(bx, by, 2)); if (col) cols.push(...col, ...col); }
+    } }
+  return { pos: new Float32Array(p), cols: cols && new Float32Array(cols) };
 }
 function buildingBin(buf) {        // extruded footprint wireframes (footprint+roof+verticals) from the packed buffer
   const p = []; if (!buf) return new Float32Array(p);
@@ -258,7 +264,7 @@ async function layers() {
     ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"], ["gas_assets", "gas_assets"]]
     .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
 
-  load("infra"); R.setLine("gas_pipes", lineBin(await gasP), GAS, vis("gas_pipes"));
+  load("infra"); const gas = lineBin(await gasP, ageTint); R.setLine("gas_pipes", gas.pos, GAS, vis("gas_pipes"), gas.cols);
   const trunk = (await pipesP).features;   // osm trunk pipelines, one line layer per kind
   for (const [id, k, col] of PIPE) R.setLine(id, lineWire({ features: trunk.filter((f) => f.properties.kind === k) }), col, vis(id));
   load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], vis("roads"));

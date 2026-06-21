@@ -26,6 +26,18 @@ def parts(g):  # geojson line geom → its coordinate rings
     return g["coordinates"] if t == "MultiLineString" else [g["coordinates"]] if t == "LineString" else []
 
 
+def yr(f):  # install year from inst_date ("YYYY-…"), or None
+    d = f["properties"].get("inst_date")
+    return int(d[:4]) if d else None
+
+
+def age_norm(feats, lo=2, hi=98):  # year→0..1 normaliser; scale clamped to the p2..p98 years (h=-1 when undated)
+    s = sorted(y for f in feats if (y := yr(f)) is not None)
+    a, b = s[len(s) * lo // 100], s[min(len(s) - 1, len(s) * hi // 100)]      # drop victorian/stray outliers before scaling
+    log(f"cadent: install-year colour scale {a}–{b} ({len(s)} dated of {len(feats)})")
+    return lambda f: ((min(b, max(a, y)) - a) / (b - a), 0.0) if (y := yr(f)) is not None else (-1.0, 0.0)
+
+
 def site(f):  # slim an above-ground site point down to what the popup needs
     return {"type": "Feature", "geometry": f["geometry"],
             "properties": {"description": f["properties"].get("description", "Above Ground Site")}}
@@ -33,6 +45,7 @@ def site(f):  # slim an above-ground site point down to what the popup needs
 
 if __name__ == "__main__":
     log("cadent: exporting gas pipe infrastructure…")
-    packbin("gas_pipes.bin", export("gas-pipe-infrastructure-gpi_open"), parts)
+    pipes = export("gas-pipe-infrastructure-gpi_open")
+    packbin("gas_pipes.bin", pipes, parts, age_norm(pipes))      # per-segment h = install-age 0..1 for the viridis ramp
     log("cadent: exporting above-ground sites…")
     write("gas_assets.geojson", fc([site(f) for f in export("above-ground-infrastructure-assets-open")]))

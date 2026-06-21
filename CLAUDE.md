@@ -151,7 +151,11 @@ all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
   (`/exports/geojson?where=in_bbox(geo_point_2d,s,w,n,e)&apikey=`) — one shot, no paging. Our key
   is the **free open tier**: the `*_open` datasets work, the `*_shared` ones 403 (`ForbiddenAccess`).
   Pipes come from the combined national `gas-pipe-infrastructure-gpi_open` (~55k segments in the
-  bbox, all `MultiLineString`) — packed to `gas_pipes.bin`; above-ground sites from
+  bbox, all `MultiLineString`) — packed to `gas_pipes.bin` and **coloured by install age**: `inst_date`→
+  install year, scale clamped to the **p2–p98** years (`age_norm`, ~1955–2024, so victorian/stray
+  outliers don't blow the **viridis** ramp), the normalised 0..1 riding in the packbin `h` slot
+  (-1 = undated → grey). app.js feeds it through `lineBin(…, ageTint)` → per-vertex rgba into the new
+  coloured-line pipeline (`pLineC`/`vlinec` in gpu.js; `setLine`'s optional `cols`). Above-ground sites from
   `above-ground-infrastructure-assets-open` (Points) → `gas_assets.geojson`. NB **Sheffield itself is
   Northern Gas Networks**, not Cadent — coverage is only the eastern/rotherham fringe of the bbox.
 - **Trunk pipelines (osm, no key)**: `pipelines.py` is the *transmission* complement to cadent's

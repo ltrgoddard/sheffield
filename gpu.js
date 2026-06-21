@@ -11,6 +11,7 @@ struct Style { color: vec4f, size: f32 };
 @vertex fn vline(@location(0) p: vec3f) -> @builtin(position) vec4f { return cam.vp * vec4f(p, 1.0); }
 
 struct MOut { @builtin(position) pos: vec4f, @location(0) col: vec4f };
+@vertex fn vlinec(@location(0) p: vec3f, @location(1) col: vec4f) -> MOut { return MOut(cam.vp * vec4f(p, 1.0), col); }
 @vertex fn vmark(@location(0) off: vec2f, @location(1) c: vec3f, @location(2) col: vec4f) -> MOut {
   let clip = cam.vp * vec4f(c, 1.0);
   return MOut(vec4f(clip.xy + off * st.size / cam.vps * clip.w * 2.0, clip.zw),
@@ -50,6 +51,10 @@ export class Renderer {
     this.pLine = dev.createRenderPipeline({ layout, primitive, vertex: { module: m, entryPoint: "vline",
       buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }] },
       fragment: { module: m, entryPoint: "fsolid", targets } });
+    this.pLineC = dev.createRenderPipeline({ layout, primitive, vertex: { module: m, entryPoint: "vlinec", buffers: [
+      { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+      { arrayStride: 16, attributes: [{ shaderLocation: 1, offset: 0, format: "float32x4" }] }] },
+      fragment: { module: m, entryPoint: "fmark", targets } });
     this.pMark = dev.createRenderPipeline({ layout, primitive: { topology: "triangle-list" }, vertex: { module: m, entryPoint: "vmark", buffers: [
       { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },
       { arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 1, offset: 0, format: "float32x3" }] },
@@ -69,10 +74,13 @@ export class Renderer {
     const bg = this.dev.createBindGroup({ layout: this.L1, entries: [{ binding: 0, resource: { buffer: b } }] });
     return bg; }
 
-  setLine(id, pos, color, vis) {
+  // cols (optional): per-vertex rgba (4/vertex) → drawn through the coloured-line pipeline (e.g. gas pipes by age).
+  setLine(id, pos, color, vis, cols) {
     const b = this.dev.createBuffer({ size: Math.max(12, pos.byteLength), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     if (pos.length) this.dev.queue.writeBuffer(b, 0, pos);
-    this.lines.set(id, { buf: b, count: pos.length / 3, bg: this.style(color, 0), vis });
+    let cb = null;
+    if (cols && cols.length) { cb = this.dev.createBuffer({ size: cols.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }); this.dev.queue.writeBuffer(cb, 0, cols); }
+    this.lines.set(id, { buf: b, col: cb, count: pos.length / 3, bg: this.style(color, 0), vis });
   }
   // markers rebuild cheaply each frame for the live feeds; reuse the buffer when the count holds.
   // cols (optional): per-instance rgba (4/inst); zero-alpha entries fall back to the layer colour.
@@ -100,7 +108,9 @@ export class Renderer {
       clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }] });
     pass.setBindGroup(0, this.cbg);
     pass.setPipeline(this.pLine);
-    for (const l of this.lines.values()) if (l.vis && l.count) { pass.setBindGroup(1, l.bg); pass.setVertexBuffer(0, l.buf); pass.draw(l.count); }
+    for (const l of this.lines.values()) if (l.vis && l.count && !l.col) { pass.setBindGroup(1, l.bg); pass.setVertexBuffer(0, l.buf); pass.draw(l.count); }
+    pass.setPipeline(this.pLineC);
+    for (const l of this.lines.values()) if (l.vis && l.count && l.col) { pass.setBindGroup(1, l.bg); pass.setVertexBuffer(0, l.buf); pass.setVertexBuffer(1, l.col); pass.draw(l.count); }
     pass.setPipeline(this.pMark); pass.setVertexBuffer(0, this.diamond);
     for (const m of this.marks.values()) if (m.vis && m.count) { pass.setBindGroup(1, m.bg); pass.setVertexBuffer(1, m.inst); pass.setVertexBuffer(2, m.col); pass.draw(6, m.count); }
     pass.end(); this.dev.queue.submit([enc.finish()]);
