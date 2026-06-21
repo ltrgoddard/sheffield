@@ -1,6 +1,6 @@
 // the cpu side: a local-metre projection, the orbit camera's matrices, and the lidar
 // terrain decoded into a height-field we both drape geometry on and draw as a wire grid.
-import { CITY, BBOX, TERRAIN, TILES } from "./config.js";
+import { CITY, TERRAIN } from "./config.js";
 
 const D = Math.PI / 180, [LNG0, LAT0] = CITY.center;
 const MLNG = 111320 * Math.cos(LAT0 * D), MLAT = 110540;
@@ -40,59 +40,47 @@ const N = (z) => 2 ** z;
 const lon2x = (lng, z) => (lng + 180) / 360 * N(z);
 const lat2y = (lat, z) => (1 - Math.log(Math.tan(lat * D) + 1 / Math.cos(lat * D)) / Math.PI) / 2 * N(z);
 
-// ─── terrain: decode terrarium tiles → per-pixel metres, exaggerated ───
+// ─── terrain: one packed int16 height grid (data/terrain.bin, built by lidar.pack) ───
+// the old per-tile terrarium-png decode is gone — fetchers/lidar.py now decodes + downsamples
+// the tiles server-side into a single int16 buffer (decimetres, nodata -32768), so we fetch one
+// file and skip ~450 png decodes. header `<6i` z,x0,y0,TX,TY,SP; then a TX·SP × TY·SP grid where
+// sample (gx,gy) sits at slippy-tile coords (x0+gx/SP, y0+gy/SP) — the whole reader mapping.
 export class Terrain {
-  constructor() { this.z = TERRAIN.zoom; this.t = new Map(); this.ok = false; }
+  constructor() { this.ok = false; }
   async load() {
-    const z = this.z, x0 = lon2x(BBOX.w, z) | 0, x1 = lon2x(BBOX.e, z) | 0,
-      y0 = lat2y(BBOX.n, z) | 0, y1 = lat2y(BBOX.s, z) | 0, jobs = [];
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(this.tile(x, y));
-    await Promise.all(jobs); return (this.ok = this.t.size > 0);
-  }
-  async tile(x, y) {
-    try {
-      const r = await fetch(TILES.replace("{z}", this.z).replace("{x}", x).replace("{y}", y));
-      if (!r.ok) return;
-      const cv = new OffscreenCanvas(256, 256), cx = cv.getContext("2d");
-      cx.drawImage(await createImageBitmap(await r.blob()), 0, 0);
-      const d = cx.getImageData(0, 0, 256, 256).data, h = new Float32Array(65536);
-      // gdal2tiles flags nodata via alpha=0 but leaves the rgb filled with black or
-      // white garbage (±32768 m spikes); honour the mask, and NaN any wild value, so
-      // coverage edges stop cleanly instead of spiking to the earth's core or sky.
-      for (let i = 0; i < 65536; i++) { const r = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
-        h[i] = d[i * 4 + 3] < 128 || r < -1000 || r > 2000 ? NaN : r * TERRAIN.exag; }
-      this.t.set(x + "/" + y, h);
-    } catch {}
+    const buf = await fetch("data/terrain.bin").then((r) => r.ok ? r.arrayBuffer() : null).catch(() => null);
+    if (!buf) return (this.ok = false);
+    [this.z, this.x0, this.y0, this.TX, this.TY, this.SP] = new Int32Array(buf, 0, 6);
+    this.W = this.TX * this.SP; this.H = this.TY * this.SP; this.g = new Int16Array(buf, 24);
+    return (this.ok = true);
   }
   // bilinear elevation (exaggerated metres) at lng/lat; 0 outside coverage.
   elev(lng, lat) {
-    const z = this.z, fx = lon2x(lng, z), fy = lat2y(lat, z), tx = fx | 0, ty = fy | 0;
-    const h = this.t.get(tx + "/" + ty); if (!h) return 0;
-    const px = (fx - tx) * 256, py = (fy - ty) * 256, x0 = Math.min(254, px | 0), y0 = Math.min(254, py | 0),
-      dx = px - x0, dy = py - y0, i = y0 * 256 + x0;
-    const e = (h[i] * (1 - dx) + h[i + 1] * dx) * (1 - dy) + (h[i + 256] * (1 - dx) + h[i + 257] * dx) * dy;
+    const gx = (lon2x(lng, this.z) - this.x0) * this.SP, gy = (lat2y(lat, this.z) - this.y0) * this.SP;
+    if (gx < 0 || gy < 0 || gx >= this.W - 1 || gy >= this.H - 1) return 0;
+    const x0 = gx | 0, y0 = gy | 0, dx = gx - x0, dy = gy - y0, i = y0 * this.W + x0, g = this.g;
+    const V = (k) => { const v = g[k]; return v === -32768 ? NaN : v / 10 * TERRAIN.exag; };
+    const e = (V(i) * (1 - dx) + V(i + 1) * dx) * (1 - dy) + (V(i + this.W) * (1 - dx) + V(i + this.W + 1) * dx) * dy;
     return isFinite(e) ? e : 0;  // nodata corners → sit draped geometry flat, not in the void
   }
-  // is there real lidar coverage at lng/lat? the single source of truth for the clip
-  // extent — every rendered feature is trimmed to this so nothing floats past the ground.
-  // (no terrain loaded → don't clip at all, so the flat fallback still draws everything.)
+  // is there real lidar coverage at lng/lat? the single source of truth for the clip extent —
+  // every rendered feature is trimmed to this. (no terrain → don't clip, so the flat fallback draws.)
   covers(lng, lat) {
     if (!this.ok) return true;
-    const z = this.z, fx = lon2x(lng, z), fy = lat2y(lat, z), h = this.t.get((fx | 0) + "/" + (fy | 0));
-    return !!h && isFinite(h[Math.min(255, (fy - (fy | 0)) * 256 | 0) * 256 + Math.min(255, (fx - (fx | 0)) * 256 | 0)]);
+    const gx = (lon2x(lng, this.z) - this.x0) * this.SP | 0, gy = (lat2y(lat, this.z) - this.y0) * this.SP | 0;
+    return gx >= 0 && gy >= 0 && gx < this.W && gy < this.H && this.g[gy * this.W + gx] !== -32768;
   }
-  // the topographic wireframe: a lifted grid of line segments over every loaded tile.
+  // the topographic wireframe: a lifted grid of line segments over the height field.
   wire() {
-    const z = this.z, s = TERRAIN.step, pos = [];
-    const node = (h, tx, ty, i, j) => { const lng = (tx + i / 256) / N(z) * 360 - 180,
-      lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + j / 256) / N(z)))) / D, [x, y] = ll2m(lng, lat);
-      return [x, y, h[j * 256 + i]]; };
-    for (const k of this.t.keys()) { const [tx, ty] = k.split("/").map(Number), h = this.t.get(k);
-      for (let j = 0; j < 256 - s; j += s) for (let i = 0; i < 256 - s; i += s) {
-        const p = node(h, tx, ty, i, j), a = node(h, tx, ty, i + s, j), b = node(h, tx, ty, i, j + s);
-        if (isFinite(p[2]) && isFinite(a[2])) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
-        if (isFinite(p[2]) && isFinite(b[2])) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
-      } }
+    const s = TERRAIN.step, W = this.W, H = this.H, g = this.g, pos = [], Nz = N(this.z);
+    const node = (gx, gy) => { const lng = (this.x0 + gx / this.SP) / Nz * 360 - 180,
+      lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (this.y0 + gy / this.SP) / Nz))) / D, [x, y] = ll2m(lng, lat);
+      const v = g[gy * W + gx]; return [x, y, v === -32768 ? NaN : v / 10 * TERRAIN.exag]; };
+    for (let gy = 0; gy < H - s; gy += s) for (let gx = 0; gx < W - s; gx += s) {
+      const p = node(gx, gy), a = node(gx + s, gy), b = node(gx, gy + s);
+      if (isFinite(p[2]) && isFinite(a[2])) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
+      if (isFinite(p[2]) && isFinite(b[2])) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
+    }
     return new Float32Array(pos);
   }
 }

@@ -14,9 +14,11 @@ The whole city is drawn as **1px lines** — terrain as a lifted wire grid, buil
 wireframes, feeds as billboarded line-markers — straight from open data onto the GPU.
 (One exception to the file contract: **live buses** are fetched in the browser straight from
 bustimes.org — a cors-enabled, no-key json feed — so they're live with no backend at all.)
-The **heavy geometry** (buildings, gas pipes) is the one *format* exception: it ships as a
-packed binary `data/*.bin` gpu buffer, not geojson, so the browser parses no megabytes of json
-(buildings was a 44 MB geojson → an 11 MB `.bin`; gas pipes 38 MB → 4 MB). See `common.packbin`.
+The **heavy data** is the one *format* exception, to avoid shipping/parsing tens of MB: the heavy
+geometry (buildings, gas pipes) ships as a packed binary `data/*.bin` gpu buffer, not geojson
+(buildings was a 44 MB geojson → 11 MB `.bin`; gas pipes 38 MB → 4 MB; see `common.packbin`), and
+the **terrain** as a single int16 height grid `data/terrain.bin` (built by `lidar.py` from the lidar
+tiles, downsampled) rather than ~450 terrarium pngs — 58 MB → 6.5 MB, and one fetch, no png decode.
 
 ```
 index.html  app.js  config.js  style.css   # frontend
@@ -32,8 +34,9 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
   `TERRAIN` (tile zoom/grid/exaggeration), `FEEDS` (file → poll ms), `LAYERS` (toggle
   id/label/default). Touch this before the JS.
 - **proj.js** — the cpu maths: local-metre projection (`ll2m`), the orbit `Camera`'s
-  view-proj matrix, and `Terrain` (decodes terrarium tiles → a height-field we both drape
-  geometry on via `elev()` and draw as a `wire()` grid). `Terrain.covers()` is the single clip
+  view-proj matrix, and `Terrain` (reads one packed `data/terrain.bin` int16 height grid — no
+  per-tile png decode — that we both drape geometry on via `elev()` and draw as a `wire()`
+  grid; `lidar.py` builds the buffer). `Terrain.covers()` is the single clip
   authority: every rendered feature (roads, buildings, lines, points, labels — via `inside()`
   in app.js) is trimmed to where lidar coverage actually exists, so nothing floats past the
   ground. fetchers can over-fetch their own boxes; the frontend clip is what defines the extent.
@@ -72,19 +75,19 @@ cp .env.example .env && $EDITOR .env   # optional OPENROUTER_API_KEY/ANTHROPIC_A
 
 Verify visually with headless Playwright — it ships a real WebGPU adapter; `window.R`
 exposes the renderer (`R.lines`/`R.marks` counts, `R.pick(x,y)`) and `window.cam` the camera.
-Terrain + 12k building wireframes decode in the first second — wait before judging.
+Terrain + the building wireframes fold in within the first second — wait before judging.
 
 ## Deployment — GitHub Pages, no server
 
 Frontend lives in git; **data lives in the `latest-data` GitHub Release** (a `data.zip` of
-all of `data/`, geojson + packed `.bin` + terrain). Two workflows:
+all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
 - **deploy.yml** (push to main / dispatch) — assembles `_site` = frontend + the release's
   data and publishes it to Pages (live at `ltrg.co.uk/sheffield`).
 - **sync.yml** (cron, daily) — re-fetches the *refreshable* feeds (rivers, air, news, reddit,
   tribune, crime, council, planning, trees), re-zips, re-uploads the release, then triggers a
   redeploy. Needs `permissions: contents: write` — `read` lets it download the release but the
   `gh release upload --clobber` 403s without write. The heavy static layers (buildings `.bin`,
-  roads, trams, terrain, **gas pipes `.bin` + sites**) carry over from the release untouched —
+  roads, trams, `terrain.bin`, **gas pipes `.bin` + sites**) carry over from the release untouched —
   rebuild those locally with `make` + `make lidar` and `gh release upload latest-data data.zip
   --clobber` when they need refreshing. Note the frontend fetches `buildings.bin`/`gas_pipes.bin`
   (not geojson) for those layers, so the release must carry the `.bin` — a release missing it 404s
@@ -154,9 +157,11 @@ all of `data/`, geojson + packed `.bin` + terrain). Two workflows:
 - **EA LIDAR WCS** (no key!): two subsets `&subset=E(a,b)&subset=N(c,d)` must be hand-appended
   (urlencode can't hold duplicate keys); `&scalefactor=` downsamples; axis labels `E N`, EPSG:27700.
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.
-- **Terrarium encoding**: `height = R*256 + G + B/256 - 32768`. `Terrain` in proj.js fetches
-  every local `data/terrain/` tile intersecting `BBOX` at `TERRAIN.zoom`, decodes via
-  `OffscreenCanvas`, and is silent (flat, no wire grid) if none are present — run lidar.py.
+- **Terrarium encoding**: `height = R*256 + G + B/256 - 32768`. This decode now happens **server-side**
+  in `lidar.pack()` (pillow, build-only) — it reads the `gdal2tiles` pngs at `PACK_ZOOM` (14),
+  downsamples by `PACK_STEP` (3, ≈28 m) and writes `data/terrain.bin` (int16 decimetres, nodata
+  -32768), then deletes the png dir. `Terrain` in proj.js just maps lng/lat → grid sample
+  (`gx=(lon2x−x0)·SP`) and is silent (flat, no wire grid) if the `.bin` is absent — run `make lidar`.
 - **Live buses, no key, no backend**: bustimes.org's `/vehicles.json?xmin&ymin&xmax&ymax`
   re-serves the DfT BODS SIRI-VM stream as plain json **with `access-control-allow-origin: *`**,
   so `app.js` (`liveBuses()`) fetches it straight from the browser and maps each record to the

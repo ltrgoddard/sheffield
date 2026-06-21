@@ -21,7 +21,7 @@ manifest: $(FEEDS)
 $(FEEDS):
 	@$(PY) fetchers/$@.py 2>&1 | sed 's/^/[$@] /'
 lidar:
-	@$(PY) fetchers/lidar.py
+	@uv run --quiet --with pillow python fetchers/lidar.py   # pillow: decode tiles → terrain.bin (build-only dep)
 serve:
 	@echo "sheffield model → http://localhost:$(PORT)"; $(PY) -m http.server $(PORT)
 clean:

@@ -13,7 +13,7 @@ osm buildings.
 
 requires gdal (`brew install gdal`); the gdal cli tools are shelled out to.
 """
-import sys, subprocess, tempfile, pathlib, shutil
+import sys, subprocess, tempfile, pathlib, shutil, struct, array
 from common import fetch, log
 
 DATA = pathlib.Path(__file__).resolve().parent.parent / "data"
@@ -73,6 +73,45 @@ def tile(tifs):
     run("gdal2tiles.py", "--xyz", "-p", "mercator", "-r", "near", "-z", ZOOM, "-w", "none", "--processes", "4", "-q", rgb, out)
     shutil.rmtree(tmp, ignore_errors=True)
     log(f"terrain tiles → {out}")
+    pack()
+    shutil.rmtree(out, ignore_errors=True)  # the .bin is the artifact now — drop the png tiles
+
+
+# zoom the frontend actually draws; the terrarium tiler also emits coarser overviews we never load.
+PACK_ZOOM, PACK_STEP = 14, 3
+
+
+def pack(zoom=PACK_ZOOM, f=PACK_STEP):
+    """decode the terrarium png tiles into a single int16 height buffer, data/terrain.bin —
+    decimetres, nodata -32768 — so the frontend fetches one file and skips ~450 png decodes.
+    downsampled by `f` (≈28 m), which is the stride the wire grid is drawn at anyway. layout:
+    `<6i` z,x0,y0,TX,TY,SP header, then a TX·SP × TY·SP row-major int16 grid. needs pillow."""
+    from PIL import Image  # only the terrain *build* needs it — kept out of the runtime deps
+    src = DATA / "terrain" / str(zoom)
+    tiles, xs, ys = {}, set(), set()
+    for p in src.glob("*/*.png"):
+        x, y = int(p.parent.name), int(p.stem); xs.add(x); ys.add(y)
+        px, h = Image.open(p).convert("RGBA").load(), array.array("h", bytes(2 * 65536))
+        for j in range(256):
+            for i in range(256):
+                r, g, b, a = px[i, j]; e = r * 256 + g + b / 256 - 32768
+                h[j * 256 + i] = -32768 if (a < 128 or e < -1000 or e > 2000) else max(-3276, min(3276, round(e * 10)))
+        tiles[(x, y)] = h
+    if not tiles:
+        sys.exit("no terrain tiles to pack — run the tiler first")
+    x0, y0 = min(xs), min(ys); TX, TY = max(xs) - x0 + 1, max(ys) - y0 + 1
+    # SP samples per tile edge → one uniform grid; sample (gx,gy) sits at tile-unit (x0+gx/SP, y0+gy/SP),
+    # so the reader's mapping is just gx=(lon2x−x0)·SP, no per-tile seams.
+    SP = 256 // f; W, H = TX * SP, TY * SP
+    grid = array.array("h", bytes(2 * W * H))
+    for gy in range(H):
+        ty = y0 + gy // SP; pj = min(255, (gy % SP) * 256 // SP)
+        for gx in range(W):
+            t = tiles.get((x0 + gx // SP, ty))
+            if t is not None:
+                grid[gy * W + gx] = t[pj * 256 + min(255, (gx % SP) * 256 // SP)]
+    (DATA / "terrain.bin").write_bytes(struct.pack("<6i", zoom, x0, y0, TX, TY, SP) + grid.tobytes())
+    log(f"  → terrain.bin  {W}×{H} samples ({len(tiles)} tiles), {(DATA / 'terrain.bin').stat().st_size // 1024} kb")
 
 
 if __name__ == "__main__":
