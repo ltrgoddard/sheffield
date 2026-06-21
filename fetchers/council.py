@@ -11,7 +11,9 @@ from common import arcgis, fc, write, log
 CUTOFF = (dt.datetime.now() - dt.timedelta(days=30)).strftime("TIMESTAMP '%Y-%m-%d 00:00:00'")
 
 # outfile, service, layer, where, fields, simplify(m) — simplify generalises
-# polygon geometry server-side to keep the files light.
+# polygon geometry server-side to keep the files light. maxAllowableOffset is in
+# outSR units (degrees, since we pull outSR=4326), so metres are converted below —
+# passing raw metres collapsed every polygon to a degenerate integer-rounded point.
 JOBS = [
     ("cctv.geojson", "AGOL/OpenData", 7, "1=1", "cam_number,location,notes", 0),
     ("faults.geojson", "AGOL/Verint_PublicFaultReporting", 11,
@@ -26,7 +28,7 @@ if __name__ == "__main__":
     for name, svc, lyr, where, fields, simp in JOBS:
         log(f"council: {name} ← {svc}/{lyr}")
         try:
-            extra = {"maxAllowableOffset": simp} if simp else None
+            extra = {"maxAllowableOffset": simp / 1.113e5} if simp else None  # m → deg
             write(name, fc(arcgis(svc, lyr, where, fields, extra)))
         except Exception as e:
             log(f"  ! skipped ({e})")
