@@ -23,13 +23,19 @@ def kind(t):  # osm tags → one of our trunk classes, or none to skip
         return "gas"  # the nts high-pressure backbone (not cadent's distribution)
 
 
+# burial depth (m, surface→pipe centre) per kind. these are *transmission* lines, laid far
+# deeper than cadent's distribution: gas nts & the fuel line carry a 1.1 m min cover (igem/td/1,
+# pd 8010-1), water trunk mains ~1.0 m; + ~0.3-0.4 m for the large bore down to the centreline.
+DEPTH = {"gas": 1.5, "water": 1.35, "fuel": 1.4}
+
+
 def feature(e):
     t = e.get("tags", {})
     k = kind(t)
     if not k or len(e.get("geometry", [])) < 2:
         return None
     return {"type": "Feature", "properties": {
-        "kind": k, "operator": t.get("operator", ""), "substance": t.get("substance", ""), "name": t.get("name", "")},
+        "kind": k, "depth": DEPTH[k], "operator": t.get("operator", ""), "substance": t.get("substance", ""), "name": t.get("name", "")},
         "geometry": {"type": "LineString", "coordinates": [[p["lon"], p["lat"]] for p in e["geometry"]]}}
 
 

@@ -1,6 +1,6 @@
 // glue: load the open data, fold it into gpu geometry, run the live feeds and the ui.
 // the whole contract is still data/*.geojson — only the renderer changed.
-import { CITY, BBOX, FEEDS, GROUPS, TRAM, LABELS } from "./config.js";
+import { CITY, BBOX, FEEDS, GROUPS, TRAM, LABELS, TERRAIN } from "./config.js";
 import { Camera, Terrain, ll2m, m2ll } from "./proj.js";
 import { Renderer } from "./gpu.js";
 
@@ -40,6 +40,9 @@ const TOG = { trams: ["tram_routes"], vehicles: [] }, tog = (id) => TOG[id] || [
 
 // ─── geometry builders: geojson → flat float32 line/point arrays in local metres ───
 const drape = (lng, lat, dz = 0) => { const [x, y] = ll2m(lng, lat); return [x, y, terr.elev(lng, lat) + dz]; };
+// buried pipes: a `depth` (metres of cover to pipe centre) sinks the line below ground in the same
+// exaggerated vertical scale as the terrain; everything else keeps the +2 m visibility lift.
+const bury = (depth) => depth != null ? -depth * TERRAIN.exag : 2;
 // the one clip authority: every feature — roads, buildings, lines, points, labels — is
 // trimmed to the lidar terrain coverage (proj.js Terrain.covers), so nothing draws beyond it.
 const inside = (lng, lat) => terr.covers(lng, lat);
@@ -47,12 +50,12 @@ const inside = (lng, lat) => terr.covers(lng, lat);
 function lineWire(fc) {
   const p = [];
   for (const f of fc.features) {
-    const g = f.geometry, lines = g.type === "LineString" ? [g.coordinates]
+    const g = f.geometry, dz = bury(f.properties?.depth), lines = g.type === "LineString" ? [g.coordinates]
       : g.type === "MultiLineString" || g.type === "Polygon" ? g.coordinates
       : g.type === "MultiPolygon" ? g.coordinates.flat() : [];
     for (const ln of lines) for (let i = 0; i < ln.length - 1; i++)
       if (inside(ln[i][0], ln[i][1]) && inside(ln[i + 1][0], ln[i + 1][1]))
-        p.push(...drape(ln[i][0], ln[i][1], 2), ...drape(ln[i + 1][0], ln[i + 1][1], 2));
+        p.push(...drape(ln[i][0], ln[i][1], dz), ...drape(ln[i + 1][0], ln[i + 1][1], dz));
   }
   return new Float32Array(p);
 }
@@ -75,10 +78,10 @@ const ageTint = (h) => h < 0 ? [.5, .5, .55, .45] : [...viridis(h), .85];   // h
 
 function lineBin(buf, tint) {       // flat polylines (gas pipes) — the binary twin of lineWire; tint(h)→rgba paints each vertex
   const p = [], cols = tint ? [] : null; if (!buf) return { pos: new Float32Array(p), cols };
-  for (const { h, parts } of feats(buf)) { const col = tint && tint(h);
+  for (const { h, b, parts } of feats(buf)) { const col = tint && tint(h), dz = bury(b);   // b = inferred cover depth (m)
     for (const c of parts) for (let i = 0; i < c.length - 2; i += 2) {
       const ax = c[i] / 1e6, ay = c[i + 1] / 1e6, bx = c[i + 2] / 1e6, by = c[i + 3] / 1e6;
-      if (inside(ax, ay) && inside(bx, by)) { p.push(...drape(ax, ay, 2), ...drape(bx, by, 2)); if (col) cols.push(...col, ...col); }
+      if (inside(ax, ay) && inside(bx, by)) { p.push(...drape(ax, ay, dz), ...drape(bx, by, dz)); if (col) cols.push(...col, ...col); }
     } }
   return { pos: new Float32Array(p), cols: cols && new Float32Array(cols) };
 }

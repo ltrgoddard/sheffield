@@ -38,6 +38,40 @@ def age_norm(feats, lo=2, hi=98):  # year→0..1 normaliser; scale clamped to th
     return lambda f: ((min(b, max(a, y)) - a) / (b - a), 0.0) if (y := yr(f)) is not None else (-1.0, 0.0)
 
 
+# uk gas depth-of-cover (m, surface→top of pipe), per njug §4.4 / igem/td/3 / hse model depths.
+# the network is NOT one depth: cover is keyed by pressure *band* (bar) and service-vs-main, and
+# the pipe then sits a radius deeper to its centreline. note lp & mp are the *same* band (≤2 bar) —
+# every authoritative source (hse, njug) gives them identical cover — so depth varies by tier and
+# bore, not the lp/mp label. higher bands (ip/hp/lts) run deeper; the >16 bar transmission tier is
+# the osm trunk layer (pipelines.py), not this distribution feed, which tops out at mp.
+BAR = {"LP": 0.075, "MP": 2, "IP": 7, "HP": 16, "LTS": 70}   # nominal upper-bound bar of each tier label
+
+
+def dia_m(v, u):  # a diameter value + unit → metres (the open feed mixes mm and inches)
+    return (v * 0.0254 if u == "I" else v / 1000) if v else 0
+
+
+def bore(p):  # the real outside bore in the ground: the carrier (old host main) when this is a
+    return max(dia_m(p.get("diameter"), p.get("diam_unit")),     # pe insert threaded through it (28% of the network), else the pipe's own
+               dia_m(p.get("carr_dia"), p.get("carr_di_un")))
+
+
+def cover(p):  # depth of cover (m) to the top of the pipe, by pressure band + main/service
+    bar, svc = BAR.get(p.get("pressure"), 2), p["type"] == "Service Pipe"
+    if bar <= 2:    return 0.45 if svc else 0.75    # lp/mp: service 0.45 (footway), main 0.75 (carriageway)
+    if bar <= 7:    return 0.75                      # intermediate pressure
+    if bar <= 16:   return 0.90                      # high-pressure distribution
+    return 1.10                                      # >16 bar lts (igem/td/1 min cover)
+
+
+def depth(f):  # metres from surface to pipe *centre* = cover + radius; negative = above ground
+    p = f["properties"]
+    if p.get("ag_ind") == "True":
+        return -1.0                                  # above-ground main: sit it on the surface, not buried
+    cov = float(p["depth"]) if p.get("depth") else cover(p)   # cadent's surveyed cover wins where recorded (else inferred)
+    return cov + bore(p) / 2
+
+
 def site(f):  # slim an above-ground site point down to what the popup needs
     return {"type": "Feature", "geometry": f["geometry"],
             "properties": {"description": f["properties"].get("description", "Above Ground Site")}}
@@ -46,6 +80,7 @@ def site(f):  # slim an above-ground site point down to what the popup needs
 if __name__ == "__main__":
     log("cadent: exporting gas pipe infrastructure…")
     pipes = export("gas-pipe-infrastructure-gpi_open")
-    packbin("gas_pipes.bin", pipes, parts, age_norm(pipes))      # per-segment h = install-age 0..1 for the viridis ramp
+    ramp = age_norm(pipes)                                       # per-segment h = install-age 0..1 (viridis), b = burial depth (m)
+    packbin("gas_pipes.bin", pipes, parts, lambda f: (ramp(f)[0], depth(f)))
     log("cadent: exporting above-ground sites…")
     write("gas_assets.geojson", fc([site(f) for f in export("above-ground-infrastructure-assets-open")]))

@@ -173,7 +173,21 @@ all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
   trent / yorkshire water trunk mains) and `fuel` (the exolum multi-product line). All written to one
   small `pipelines.geojson` (~30 kb, drawn with `lineWire`, no `.bin`); app.js's `PIPE` table maps each
   kind → layer id + colour. Distribution-pressure gas (overlaps cadent) and minor industrial lines
-  (oxygen/cement/sewage/heat) are dropped.
+  (oxygen/cement/sewage/heat) are dropped. Each feature also carries an inferred **`depth`** (see below).
+- **Pipe burial depth (rendered below the terrain)**: pipes are draped at their real depth of cover, not
+  on the surface. Depths are *inferred from each feed's metadata* against uk standards (njug §4.4 /
+  igem/td/3 + td/1 / hse model depths / water fittings regs 1999) — the recorded `depth` column is 100%
+  null in cadent's open tier, so it's a fallback, not the source. **cadent** (`cadent.py` `cover()`/`depth()`):
+  cover is keyed by pressure *band* in bar (lp & mp are the *same* ≤2 bar band — every source gives them
+  identical cover; the lp/mp label doesn't change depth) and main-vs-service (main 0.75 m, service 0.45 m;
+  ip 0.75, hp 0.9, >16 bar lts 1.1), then the pipe sits a *bore radius* deeper to its centreline — and the
+  bore is the **carrier** (the old cast/spun/ductile-iron host main a pe pipe is inserted through, ~28% of
+  the network, almost always wider) where present, not the thin insert. `ag_ind=True` → negative depth (above
+  ground). the metre depth rides in the packbin **`b`** slot (was 0); `h` still carries install-age.
+  **trunk** (`pipelines.py` `DEPTH`): transmission lines are far deeper — gas nts 1.5, fuel 1.4, water 1.35 m
+  (centreline; ~1.1 m cover + large bore). frontend: app.js `bury(depth)` → `-depth·TERRAIN.exag` (same
+  exaggerated vertical scale as terrain) feeds `drape`; `lineWire` reads `properties.depth` per feature,
+  `lineBin` reads the per-feature `b`. everything non-pipe (depth null) keeps the old +2 m visibility lift.
 - **EA LIDAR WCS** (no key!): two subsets `&subset=E(a,b)&subset=N(c,d)` must be hand-appended
   (urlencode can't hold duplicate keys); `&scalefactor=` downsamples; axis labels `E N`, EPSG:27700.
   Only the **DTM** is exposed on the WCS — DSM (rooftops) needs GeoTIFFs passed to lidar.py.
