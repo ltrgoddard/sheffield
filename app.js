@@ -6,6 +6,9 @@ import { Renderer } from "./gpu.js";
 
 const D = Math.PI / 180, $ = (s) => document.querySelector(s);
 const geo = (f) => fetch(`data/${f}.geojson`).then((r) => r.ok ? r.json() : empty).catch(() => empty);
+// heavy geometry (buildings, gas pipes) ships as a packed gpu buffer, not geojson — nothing
+// for the browser to JSON.parse, ~5-11× smaller raw. see packbin() in fetchers/common.py.
+const bin = (f) => fetch(`data/${f}.bin`).then((r) => r.ok ? r.arrayBuffer() : null).catch(() => null);
 // static feeds (tram route/stop geometry) barely change: serve from localStorage instantly, revalidate in the background.
 const cgeo = async (f) => { const k = "geo:" + f, hit = localStorage[k];
   const live = geo(f).then((d) => { if (d.features.length) localStorage[k] = JSON.stringify(d); return d; });
@@ -21,7 +24,7 @@ const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() 
     properties: { vehicle: v.id, line: v.service?.line_name || "", operator: v.vehicle?.name || "" } })) }));
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
-const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1];
+const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6];
 const FLAT = GROUPS.flatMap(([, , items]) => items);
 const on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 
@@ -36,23 +39,6 @@ const drape = (lng, lat, dz = 0) => { const [x, y] = ll2m(lng, lat); return [x, 
 // trimmed to the lidar terrain coverage (proj.js Terrain.covers), so nothing draws beyond it.
 const inside = (lng, lat) => terr.covers(lng, lat);
 
-function buildingWire(fc) {
-  const p = [];
-  for (const f of fc.features) {
-    const g = f.geometry, polys = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
-    const pr = f.properties, H = +pr.height || +pr.render_height || 8, B = +pr.min_height || 0;
-    for (const poly of polys) for (const ring of poly) for (let i = 0; i < ring.length - 1; i++) {
-      if (!(inside(ring[i][0], ring[i][1]) && inside(ring[i + 1][0], ring[i + 1][1]))) continue;
-      const [ax, ay] = ll2m(ring[i][0], ring[i][1]), [bx, by] = ll2m(ring[i + 1][0], ring[i + 1][1]);
-      const ga = terr.elev(ring[i][0], ring[i][1]), gb = terr.elev(ring[i + 1][0], ring[i + 1][1]);
-      p.push(ax, ay, ga + B, bx, by, gb + B,   // footprint edge
-        ax, ay, ga + H, bx, by, gb + H,         // roofline edge
-        ax, ay, ga + B, ax, ay, ga + H);        // vertical edge at the vertex
-    }
-  }
-  return new Float32Array(p);
-}
-
 function lineWire(fc) {
   const p = [];
   for (const f of fc.features) {
@@ -66,13 +52,45 @@ function lineWire(fc) {
   return new Float32Array(p);
 }
 
+// ─── packed gpu buffers: same draping/clipping, fed from the binary the packer wrote ───
+function* feats(buf) {   // yield { h, b, parts:[Int32Array] } per feature — coords are lon/lat ×1e6
+  const dv = new DataView(buf); let o = 4;
+  for (let n = dv.getUint32(0, true); n--; ) {
+    const h = dv.getFloat32(o, true), b = dv.getFloat32(o + 4, true), np = dv.getUint32(o + 8, true); o += 12;
+    const parts = [];
+    for (let j = 0; j < np; j++) { const nv = dv.getUint32(o, true); o += 4; parts.push(new Int32Array(buf, o, nv * 2)); o += nv * 8; }
+    yield { h, b, parts };
+  }
+}
+function lineBin(buf) {            // flat polylines (gas pipes) — the binary twin of lineWire
+  const p = []; if (!buf) return new Float32Array(p);
+  for (const { parts } of feats(buf)) for (const c of parts)
+    for (let i = 0; i < c.length - 2; i += 2) {
+      const ax = c[i] / 1e6, ay = c[i + 1] / 1e6, bx = c[i + 2] / 1e6, by = c[i + 3] / 1e6;
+      if (inside(ax, ay) && inside(bx, by)) p.push(...drape(ax, ay, 2), ...drape(bx, by, 2));
+    }
+  return new Float32Array(p);
+}
+function buildingBin(buf) {        // extruded footprint wireframes (footprint+roof+verticals) from the packed buffer
+  const p = []; if (!buf) return new Float32Array(p);
+  for (const { h: H, b: B, parts } of feats(buf)) for (const c of parts)
+    for (let i = 0; i < c.length - 2; i += 2) {
+      const lax = c[i] / 1e6, lay = c[i + 1] / 1e6, lbx = c[i + 2] / 1e6, lby = c[i + 3] / 1e6;
+      if (!(inside(lax, lay) && inside(lbx, lby))) continue;
+      const [ax, ay] = ll2m(lax, lay), [bx, by] = ll2m(lbx, lby);
+      const ga = terr.elev(lax, lay), gb = terr.elev(lbx, lby);
+      p.push(ax, ay, ga + B, bx, by, gb + B, ax, ay, ga + H, bx, by, gb + H, ax, ay, ga + B, ax, ay, ga + H);
+    }
+  return new Float32Array(p);
+}
+
 // ─── point feeds: one style table, a feature registry backing picking + popups ───
 const reg = {};
 const PT = {
   crime: [[1, 0, 0, 1], 4], faults: [[1, .5, 0, 1], 4], cctv: [[.6, 0, 1, 1], 4],
   stops: [WHITE, 3], trees: [[0, 1, 0, 1], 2.5], air: [[0, 1, 1, 1], 5],
   news: [[1, 1, 0, 1], 6], reddit: [[1, .27, .13, 1], 6], tribune: [[1, .3, .45, 1], 7], rivers: [[0, 0, 1, 1], 5], trams: [AMBER, TRAM.size], vehicles: [[1, 0, 1, 1], 4],
-  bus_stops: [[1, .55, .85, .7], 2],
+  bus_stops: [[1, .55, .85, .7], 2], gas_assets: [[1, .6, .15, 1], 4],
 };
 // #rrggbb → rgba float, lifting near-black liveries (e.g. tram-train #000) off the black map.
 const rgb = (h) => { const n = parseInt(h.slice(1), 16), c = [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; return Math.max(...c) < .2 ? [.7, .7, .7, 1] : [...c, 1]; };
@@ -156,6 +174,7 @@ const POP = {
   reddit: (p) => `<b>r/sheffield · ${p.category || "post"}</b><div class="v">${p.title || ""}</div><div class="m">${p.place || ""}</div>`,
   tribune: (p) => `<b>sheffield tribune${p.place ? " · " + p.place : ""}</b><div class="v"><a href="${p.link}" target="_blank" rel="noopener">${p.title || ""}</a></div><div class="m">${p.summary || ""}</div>`,
   rivers: (p) => `<b>River gauge</b><div class="v">${p.name || p.river || p.label || ""}</div><div class="m">${p.level ?? p.value ?? ""}</div>`,
+  gas_assets: (p) => `<b>Gas · above-ground site</b><div class="m">${p.description || ""}</div>`,
 };
 function wirePicking() {
   const el = $("#popup");
@@ -218,15 +237,17 @@ function drawLabels() {
 async function layers() {
   // fire *every* fetch up front so the network runs fully in parallel, then fold each
   // as it resolves — folding is cpu-bound and cheap next to the round-trips it replaces.
-  const buildingsP = geo("buildings");   // the big (~40 MB) fetch; fold it last
+  const buildingsP = bin("buildings");   // the big fetch (packed gpu buffer); fold it last
+  const gasP = bin("gas_pipes");
   const roadsP = geo("roads"), routesP = cgeo("tram_routes");
   const lineP = [["boundary", FAINT], ["wards", [1, 1, 1, .22]], ["clean_air", [.6, .85, 1, .5]], ["planning", [0, 1, 0, 1]]]
     .map(([id, col]) => [id, col, geo(id)]);
   const cached = new Set(["tram_stops", "bus_stops"]);   // static osm geometry, served from localStorage
   const ptP = [["crime", "crime"], ["faults", "faults"], ["cctv", "cctv"], ["trees", "trees"],
-    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"]]
+    ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"], ["gas_assets", "gas_assets"]]
     .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
 
+  R.setLine("gas_pipes", lineBin(await gasP), GAS, vis("gas_pipes"));
   const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
   const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
   for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));
@@ -238,7 +259,7 @@ async function layers() {
   // buildings last: ~12k footprints is the heaviest fold — by now the terrain, roads,
   // trams and feeds are already on screen (animate() has been running since startup),
   // so the city wireframe fills in rather than blocking the whole first paint.
-  R.setLine("buildings", buildingWire(await buildingsP), WHITE, true);
+  R.setLine("buildings", buildingBin(await buildingsP), WHITE, true);
 }
 
 // ─── ui: toggles + legend ───
