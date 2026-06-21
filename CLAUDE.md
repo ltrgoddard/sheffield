@@ -16,7 +16,8 @@ wireframes, feeds as billboarded line-markers — straight from open data onto t
 bustimes.org — a cors-enabled, no-key json feed — so they're live with no backend at all.)
 The **heavy data** is the one *format* exception, to avoid shipping/parsing tens of MB: the heavy
 geometry (buildings, gas pipes) ships as a packed binary `data/*.bin` gpu buffer, not geojson
-(buildings was a 44 MB geojson → 11 MB `.bin`; gas pipes 38 MB → 4 MB; see `common.packbin`), and
+(buildings packs the footprints + a trailing per-building osm-tag section for the click card; gas
+pipes 38 MB → 4 MB; see `common.packbin`), and
 the **terrain** as a single int16 height grid `data/terrain.bin` (built by `lidar.py` from the lidar
 tiles, downsampled) rather than ~450 terrarium pngs — 58 MB → 6.5 MB, and one fetch, no png decode.
 
@@ -40,14 +41,19 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
   authority: every rendered feature (roads, buildings, lines, points, labels — via `inside()`
   in app.js) is trimmed to where lidar coverage actually exists, so nothing floats past the
   ground. fetchers can over-fetch their own boxes; the frontend clip is what defines the extent.
-- **gpu.js** — the `Renderer`: one WebGPU device, two pipelines (1px `line-list` + instanced
-  point-markers), orbit controls (drag pan / right-drag orbit / wheel dolly; one-finger pan /
-  two-finger pinch-twist-tilt on touch), and cpu-side `pick()`. API:
-  `setLine`/`setMark`/`setVisible`/`frame`/`pick`/`screen` (world→css-px for the label overlay).
+- **gpu.js** — the `Renderer`: one WebGPU device, three pipelines (1px `line-list` + instanced
+  point-markers + a translucent triangle `fill` for the one selected building), orbit controls
+  (drag pan / right-drag orbit / wheel dolly; one-finger pan / two-finger pinch-twist-tilt on
+  touch), and cpu-side `pick()`. API: `setLine`/`setMark`/`setVisible`/`setFill`/`clearFill`/
+  `fillStyle`/`frame`/`pick`/`screen` (world→css-px for the label overlay). The fill vertex is
+  `(x,y,zTop,zBase)` and `st.size` carries a 0→1 grow factor so the prism rises on selection.
 - **app.js** — loads each feed, folds geojson into flat float32 line/point arrays in metres
   (`lineWire`/`setPoints`) — or, for the packed `.bin` layers, reads the buffer straight through
-  with no json parse (`bin()`→`feats()`→`lineBin`/`buildingBin`, the binary twins that drape +
-  clip exactly as the geojson builders do). Runs `animate()` (rAF loop moving trams +
+  with no json parse (`bin()`→`feats()`→`lineBin`, plus `buildingData` which in one pass yields
+  the wireframe lines *and* a click registry per building — outer ring, bbox, height, osm tags).
+  Clicking a building ground-picks it (`cam.ground`→`m2ll`→point-in-polygon, tallest wins),
+  lights it with an amber fill prism (ear-clipped roof + walls) and shows an info `#card` on the
+  left in the legend's style. Runs `animate()` (rAF loop moving trams +
   interpolating live buses, then `drawLabels()`) and `poll()`, wires the toggles + popups.
   **Labels** (`drawLabels`) are the only text: lowercase JetBrains Mono on a 2d `#labels`
   overlay, projected via `R.screen()` each frame, fading in only at high zoom (`LABELS` in
@@ -58,7 +64,9 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
   llm call — free OpenRouter when `OPENROUTER_API_KEY` is set, else Anthropic), `write` (**atomic** temp-then-rename so
   the poller never sees a half file) and `packbin` (the same atomic write for a packed gpu
   buffer: `u32 nFeatures`, then per feature `f32 h, f32 b, u32 nParts`, then per part `u32
-  nVerts` + int32 lon/lat ×1e6 — a ~0.1 m grid). Everything writes compact EPSG:4326 geojson, or a `.bin`.
+  nVerts` + int32 lon/lat ×1e6 — a ~0.1 m grid; with `tags=` a trailing section — `u32
+  nFeatures` then per feature a length-prefixed utf8 json blob — rides along for click-time
+  metadata, ignored by the geometry readers). Everything writes compact EPSG:4326 geojson, or a `.bin`.
 - **Makefile** runs every fetcher under `uv` **in parallel** (`make` = `-j 8`; each independent,
   one failing never aborts the rest) then `manifest.py`, which writes `data/manifest.json` — a
   per-feed freshness index (feature count, size, age) for the frontend status and ops. Python is

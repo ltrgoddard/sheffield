@@ -10,6 +10,12 @@ struct Style { color: vec4f, size: f32 };
 
 @vertex fn vline(@location(0) p: vec3f) -> @builtin(position) vec4f { return cam.vp * vec4f(p, 1.0); }
 
+// solid fill for the picked building: p = (x, y, zTop, zBase); st.size carries a
+// 0→1 grow factor so the prism rises from its base to full height on selection.
+@vertex fn vfill(@location(0) p: vec4f) -> @builtin(position) vec4f {
+  return cam.vp * vec4f(p.x, p.y, mix(p.w, p.z, st.size), 1.0);
+}
+
 struct MOut { @builtin(position) pos: vec4f, @location(0) col: vec4f };
 @vertex fn vlinec(@location(0) p: vec3f, @location(1) col: vec4f) -> MOut { return MOut(cam.vp * vec4f(p, 1.0), col); }
 @vertex fn vmark(@location(0) off: vec2f, @location(1) c: vec3f, @location(2) col: vec4f) -> MOut {
@@ -60,6 +66,12 @@ export class Renderer {
       { arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 1, offset: 0, format: "float32x3" }] },
       { arrayStride: 16, stepMode: "instance", attributes: [{ shaderLocation: 2, offset: 0, format: "float32x4" }] }] },
       fragment: { module: m, entryPoint: "fmark", targets } });
+    // the building-highlight fill: one translucent prism, drawn over the wireframe.
+    this.pFill = dev.createRenderPipeline({ layout, primitive: { topology: "triangle-list" },
+      vertex: { module: m, entryPoint: "vfill", buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }] }] },
+      fragment: { module: m, entryPoint: "fsolid", targets } });
+    this.fillBuf = dev.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.fillBg = dev.createBindGroup({ layout: this.L1, entries: [{ binding: 0, resource: { buffer: this.fillBuf } }] });
     // a filled unit diamond (2 triangles) billboarded per instance — the marker glyph.
     const d = new Float32Array([0, 1, 1, 0, 0, -1, 0, -1, -1, 0, 0, 1]);
     this.diamond = dev.createBuffer({ size: d.byteLength, usage: GPUBufferUsage.VERTEX, mappedAtCreation: true });
@@ -95,6 +107,14 @@ export class Renderer {
     this.marks.set(id, { inst, col: cb, count: n, cpu: xyz, bg: this.style(color, size * this.dpr), vis, pick });
   }
   setVisible(id, on) { const e = this.lines.get(id) || this.marks.get(id); if (e) e.vis = on; }
+  // the single selected-building highlight: pos is (x,y,zTop,zBase)×N triangles.
+  setFill(pos) { this.fill?.buf.destroy();
+    const b = this.dev.createBuffer({ size: Math.max(16, pos.byteLength), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    if (pos.length) this.dev.queue.writeBuffer(b, 0, pos);
+    this.fill = { buf: b, count: pos.length / 4, vis: true }; }
+  clearFill() { if (this.fill) this.fill.vis = false; }
+  // colour + grow factor, rewritten each frame while the fill animates in.
+  fillStyle(c, t) { this.dev.queue.writeBuffer(this.fillBuf, 0, new Float32Array([c[0], c[1], c[2], c[3], t, 0, 0, 0])); }
   // world point → css pixels through the current view-proj (null if behind), for the label overlay.
   screen(x, y, z) { return project(this.vp, x, y, z, this.cv.clientWidth, this.cv.clientHeight); }
 
@@ -113,6 +133,7 @@ export class Renderer {
     for (const l of this.lines.values()) if (l.vis && l.count && l.col) { pass.setBindGroup(1, l.bg); pass.setVertexBuffer(0, l.buf); pass.setVertexBuffer(1, l.col); pass.draw(l.count); }
     pass.setPipeline(this.pMark); pass.setVertexBuffer(0, this.diamond);
     for (const m of this.marks.values()) if (m.vis && m.count) { pass.setBindGroup(1, m.bg); pass.setVertexBuffer(1, m.inst); pass.setVertexBuffer(2, m.col); pass.draw(6, m.count); }
+    if (this.fill?.vis && this.fill.count) { pass.setPipeline(this.pFill); pass.setBindGroup(1, this.fillBg); pass.setVertexBuffer(0, this.fill.buf); pass.draw(this.fill.count); }
     pass.end(); this.dev.queue.submit([enc.finish()]);
   }
   // nearest visible, pickable marker within ~12px of the cursor, projected on the cpu.

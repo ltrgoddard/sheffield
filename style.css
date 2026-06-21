@@ -14,8 +14,8 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 #labels { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; pointer-events: none; }
 
 /* chrome sits on the canvas in blurred semi-transparent grey boxes */
-#panel { position: absolute; z-index: 2; text-shadow: 0 1px 8px rgba(0, 0, 0, .9); }
-#panel { background: rgba(40, 40, 44, .45); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+#panel, #card { position: absolute; z-index: 2; text-shadow: 0 1px 8px rgba(0, 0, 0, .9);
+  background: rgba(40, 40, 44, .45); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; padding: 16px 18px; }
 
 /* size to the longest single-line row so every label and its dot share one column;
@@ -45,6 +45,22 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 #legend.show { display: flex; }
 #legend .li { display: flex; align-items: center; gap: 9px; font-size: 10px; letter-spacing: .06em; text-transform: lowercase; color: var(--dim); }
 #legend .li i { width: 14px; height: 2px; flex: none; margin-left: auto; }
+
+/* building card: same glass box as the legend, pinned left; title + dim label rows */
+#card { left: 24px; top: 24px; width: max-content; min-width: 200px; max-width: min(300px, calc(100vw - 48px)); display: none; }
+#card.show { display: block; }
+#card h3 { font-size: 14px; font-weight: 600; text-transform: lowercase; letter-spacing: .01em; padding-right: 18px; line-height: 1.3; }
+#card b { display: block; font-size: 8.5px; letter-spacing: .16em; text-transform: lowercase; color: var(--dim); font-weight: 500; margin-top: 5px; }
+#card .r { display: flex; gap: 16px; justify-content: space-between; align-items: baseline; font-size: 11.5px; padding: 4px 0; }
+#card .r + .r { border-top: 1px solid rgba(255, 255, 255, .06); }
+#card .r:first-of-type { margin-top: 11px; padding-top: 0; }
+#card .r span { color: var(--dim); font-size: 10px; letter-spacing: .06em; text-transform: lowercase; flex: none; }
+#card .r em { color: var(--text); font-style: normal; text-align: right; }
+#card .lk { margin-top: 11px; padding-top: 11px; border-top: 1px solid rgba(255, 255, 255, .12); font-size: 10.5px; letter-spacing: .04em; color: var(--dim); }
+#card .lk a { color: var(--dim2); text-decoration: underline; text-underline-offset: 2px; }
+#card .lk a:hover { color: var(--text); }
+#card .x { position: absolute; top: 13px; right: 13px; font-style: normal; font-size: 11px; color: var(--dim); cursor: pointer; transition: color .15s; }
+#card .x:hover { color: var(--text); }
 
 
 /* popup: text on a whisper of black, hairline border, no chrome */

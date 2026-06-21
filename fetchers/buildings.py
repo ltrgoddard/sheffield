@@ -32,10 +32,18 @@ def ring(geom):
     return r if len(r) >= 4 else None
 
 
+# tags worth a click-time card: identity, function, address, age, listing, links.
+KEEP = ("name", "building", "amenity", "shop", "office", "tourism", "leisure", "man_made",
+        "historic", "operator", "brand", "start_date", "building:levels", "website",
+        "wikipedia", "heritage", "listed_status", "denomination", "religion",
+        "addr:housenumber", "addr:street", "addr:postcode")
+
+
 def feature(coords, t):
     mh = num(t.get("min_height")) or (num(t.get("building:min_level")) or 0) * 3 or 0
     return {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [coords]},
-            "properties": {"height": round(height(t), 1), "min_height": round(mh, 1)}}
+            "properties": {"height": round(height(t), 1), "min_height": round(mh, 1),
+                           "tags": {k: t[k] for k in KEEP if t.get(k)}}}
 
 
 if __name__ == "__main__":
@@ -51,4 +59,5 @@ if __name__ == "__main__":
                     feats.append(feature(r, t))
     # ~12k footprints, 1.1M vertices — pack straight to a gpu buffer (was a 44 MB geojson).
     packbin("buildings.bin", feats, lambda g: g["coordinates"],
-            lambda f: (f["properties"]["height"], f["properties"]["min_height"]))
+            lambda f: (f["properties"]["height"], f["properties"]["min_height"]),
+            tags=lambda f: f["properties"]["tags"])
