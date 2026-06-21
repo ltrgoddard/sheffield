@@ -18,7 +18,9 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 #panel { background: rgba(40, 40, 44, .45); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; padding: 16px 18px; }
 
-#panel { top: 24px; right: 24px; width: 158px; }
+/* size to the longest single-line row so every label and its dot share one column;
+   max-content keeps that true on mobile too (capped to the viewport). */
+#panel { top: 24px; right: 24px; width: max-content; max-width: calc(100vw - 48px); }
 #bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: lowercase; color: var(--dim2); user-select: none; margin-bottom: 13px; padding-bottom: 13px; border-bottom: 1px solid rgba(255, 255, 255, .12); transition: color .15s; }
 #bar:hover { color: var(--text); }
 #bar i { width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-135deg); transition: transform .2s; }
@@ -29,12 +31,12 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 .grp { margin-top: 9px; }
 .grp:first-child { margin-top: 0; }
 .grp.collapsed .row { display: none; }
-.gh { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: lowercase; color: var(--dim2); user-select: none; transition: color .15s; }
+.gh { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-size: 12px; font-weight: 600; text-transform: lowercase; color: var(--dim2); user-select: none; transition: color .15s; white-space: nowrap; }
 .gh .cv { flex: none; display: flex; align-items: center; cursor: pointer; padding: 6px; margin: -6px -2px -6px -6px; }
 .gh .cv::before { content: ""; width: 4px; height: 4px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform .2s; }
 .grp.collapsed .gh .cv::before { transform: rotate(-45deg); }
 .gh.on, .gh:hover { color: var(--text); }
-.row { display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 16px; cursor: pointer; font-size: 12px; font-weight: 400; color: var(--dim2); user-select: none; transition: color .15s; }
+.row { display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 16px; cursor: pointer; font-size: 12px; font-weight: 400; color: var(--dim2); user-select: none; transition: color .15s; white-space: nowrap; }
 .row.on, .row:hover { color: var(--text); }
 .gh .tk, .row .tk { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; border: 1px solid currentColor; flex: none; transition: background .2s; cursor: pointer; }
 .gh.on .tk, .row.on .tk { background: var(--text); border-color: var(--text); }
@@ -59,7 +61,6 @@ body { font-family: var(--font); overflow: hidden; background: #000; color: var(
 
 /* loading cover: plain black over the whole view until every layer's loaded, then
    it fades out — revealing the city + legend, which were drawn behind it all along */
-#splash { position: fixed; inset: 0; z-index: 10; background: #000; transition: opacity 1.1s ease; }
+#splash { position: fixed; inset: 0; z-index: 10; background: #000; transition: opacity 1.1s ease; display: grid; place-content: center; }
 #splash.gone { opacity: 0; pointer-events: none; }
-
-@media (max-width: 560px) { #panel { width: 140px; } }
+#splash span { font-size: 12px; letter-spacing: .14em; text-transform: lowercase; color: var(--dim); }

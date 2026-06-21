@@ -5,6 +5,8 @@ import { Camera, Terrain, ll2m } from "./proj.js";
 import { Renderer } from "./gpu.js";
 
 const D = Math.PI / 180, $ = (s) => document.querySelector(s);
+// the bit currently streaming in, shown centred on the black splash while it loads.
+const load = (m) => { const e = $("#splash > span"); if (e) e.textContent = "loading " + m + "…"; };
 const geo = (f) => fetch(`data/${f}.geojson`).then((r) => r.ok ? r.json() : empty).catch(() => empty);
 // heavy geometry (buildings, gas pipes) ships as a packed gpu buffer, not geojson — nothing
 // for the browser to JSON.parse, ~5-11× smaller raw. see packbin() in fetchers/common.py.
@@ -247,15 +249,16 @@ async function layers() {
     ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"], ["gas_assets", "gas_assets"]]
     .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
 
-  R.setLine("gas_pipes", lineBin(await gasP), GAS, vis("gas_pipes"));
-  const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
-  const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
-  for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));
-  for (const [id, p] of ptP) setPoints(id, (await p).features, vis(id));
+  load("infra"); R.setLine("gas_pipes", lineBin(await gasP), GAS, vis("gas_pipes"));
+  load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  load("trams"); const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
+  load("districts"); for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));
+  load("feeds"); for (const [id, p] of ptP) setPoints(id, (await p).features, vis(id));
   buildStopLabels("stops", "rgb(238,238,242)"); buildStopLabels("bus_stops", "rgb(255,150,225)");
 
   setPoints("trams", [], vis("trams")); setPoints("vehicles", [], vis("vehicles"));
   buildUI(); poll();
+  load("buildings");
   // buildings last: ~12k footprints is the heaviest fold — by now the terrain, roads,
   // trams and feeds are already on screen (animate() has been running since startup),
   // so the city wireframe fills in rather than blocking the whole first paint.
@@ -308,7 +311,7 @@ function poll() {
 
 (async () => {
   try {
-    terr = new Terrain(); await terr.load();
+    load("terrain"); terr = new Terrain(); await terr.load();
     const c = CITY.center;
     cam = new Camera({ target: [...ll2m(c[0], c[1]), terr.elev(c[0], c[1])],
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
