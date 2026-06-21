@@ -5,9 +5,9 @@ export const CITY = { center: [-1.4685, 53.3787], dist: 2600, pitch: 62, bearing
 // the buildings fetcher and the terrain tiles cover this same box. keep all three in step.
 export const BBOX = { w: -1.802, s: 53.304, e: -1.324, n: 53.504 };
 
-// local ea-lidar terrarium tiles (built by fetchers/lidar.py) draped as a wire grid.
-export const TILES = "data/terrain/{z}/{x}/{y}.png";
-export const TERRAIN = { zoom: 14, step: 3, exag: 1.4 }; // grid subsample (px), vertical exaggeration
+// ea-lidar relief: fetchers/lidar.py packs the tiles into one int16 buffer (data/terrain.bin,
+// already downsampled), draped as a wire grid. zoom is informational (the .bin carries its own).
+export const TERRAIN = { zoom: 14, step: 1, exag: 1.4 }; // step = wire stride over the packed grid, vertical exaggeration
 
 // data files the fetchers write, with how often the frontend re-reads them (ms; 0 = once).
 export const FEEDS = {
