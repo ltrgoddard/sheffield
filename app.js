@@ -228,7 +228,10 @@ function drawLabels() {
       glyph(s[0] + 7, s[1], L.t, L.tint, stopA, 0); } }
   const stA = fade(dist, LABELS.street);                        // then street names fill the gaps
   if (stA > 0) { lx.font = `400 10px '${LABELS.font}', monospace`;
-    for (const L of streetLabels) { const a = R.screen(L.a[0], L.a[1], L.a[2]), b = R.screen(L.b[0], L.b[1], L.b[2]); if (!a || !b) continue;
+    const [tx, ty] = cam.target, near2 = LABELS.nearStreet ** 2;   // cull roads far from the camera focus
+    for (const L of streetLabels) {
+      const cx = (L.a[0] + L.b[0]) / 2 - tx, cy = (L.a[1] + L.b[1]) / 2 - ty; if (cx * cx + cy * cy > near2) continue;
+      const a = R.screen(L.a[0], L.a[1], L.a[2]), b = R.screen(L.b[0], L.b[1], L.b[2]); if (!a || !b) continue;
       const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; let ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
       if (ang > Math.PI / 2) ang -= Math.PI; else if (ang < -Math.PI / 2) ang += Math.PI;
       const tw = lx.measureText(L.t).width; if (!fits(mx - tw / 2, my, tw)) continue;
