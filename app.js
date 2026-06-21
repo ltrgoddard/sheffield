@@ -47,42 +47,54 @@ const bury = (depth) => depth != null ? -depth * TERRAIN.exag : 2;
 // trimmed to the lidar terrain coverage (proj.js Terrain.covers), so nothing draws beyond it.
 const inside = (lng, lat) => terr.covers(lng, lat);
 
-function lineWire(fc) {
-  const p = [];
+// clickable line layers keep a pick registry: per feature its props + visible segments in
+// metres (ax,ay,bx,by flat), so pickLine() can find the nearest segment under the cursor.
+const lineReg = {};
+function lineWire(fc, regId) {
+  const p = [], items = regId ? [] : null;
   for (const f of fc.features) {
     const g = f.geometry, dz = bury(f.properties?.depth), lines = g.type === "LineString" ? [g.coordinates]
       : g.type === "MultiLineString" || g.type === "Polygon" ? g.coordinates
       : g.type === "MultiPolygon" ? g.coordinates.flat() : [];
+    const segs = items ? [] : null;
     for (const ln of lines) for (let i = 0; i < ln.length - 1; i++)
-      if (inside(ln[i][0], ln[i][1]) && inside(ln[i + 1][0], ln[i + 1][1]))
+      if (inside(ln[i][0], ln[i][1]) && inside(ln[i + 1][0], ln[i + 1][1])) {
         p.push(...drape(ln[i][0], ln[i][1], dz), ...drape(ln[i + 1][0], ln[i + 1][1], dz));
+        if (segs) segs.push(...ll2m(ln[i][0], ln[i][1]), ...ll2m(ln[i + 1][0], ln[i + 1][1]));
+      }
+    if (segs?.length) items.push({ props: f.properties || {}, segs });
   }
+  if (items) lineReg[regId] = items;
   return new Float32Array(p);
 }
 
 // ─── packed gpu buffers: same draping/clipping, fed from the binary the packer wrote ───
-function* feats(buf) {   // yield { h, b, parts:[Int32Array] } per feature — coords are lon/lat ×1e6
-  const dv = new DataView(buf); let o = 4;
-  for (let n = dv.getUint32(0, true); n--; ) {
-    const h = dv.getFloat32(o, true), b = dv.getFloat32(o + 4, true), np = dv.getUint32(o + 8, true); o += 12;
-    const parts = [];
-    for (let j = 0; j < np; j++) { const nv = dv.getUint32(o, true); o += 4; parts.push(new Int32Array(buf, o, nv * 2)); o += nv * 8; }
-    yield { h, b, parts };
-  }
-}
 // viridis ramp (10 anchors, lerped) — tints gas pipes by install age.
 const VIRIDIS = [[68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142], [38, 130, 142], [31, 158, 137], [53, 183, 121], [110, 206, 88], [181, 222, 43], [253, 231, 37]];
 function viridis(t) { const x = Math.max(0, Math.min(1, t)) * 9, i = x | 0, f = x - i, a = VIRIDIS[i], b = VIRIDIS[Math.min(i + 1, 9)];
   return [0, 1, 2].map((k) => (a[k] + (b[k] - a[k]) * f) / 255); }
 const ageTint = (h) => h < 0 ? [.5, .5, .55, .45] : [...viridis(h), .85];   // h<0 = undated pipe → dim grey
 
-function lineBin(buf, tint) {       // flat polylines (gas pipes) — the binary twin of lineWire; tint(h)→rgba paints each vertex
+function lineBin(buf, tint, regId) {   // flat polylines (gas pipes) — the binary twin of lineWire; tint(h)→rgba paints each vertex
   const p = [], cols = tint ? [] : null; if (!buf) return { pos: new Float32Array(p), cols };
-  for (const { h, b, parts } of feats(buf)) { const col = tint && tint(h), dz = bury(b);   // b = inferred cover depth (m)
-    for (const c of parts) for (let i = 0; i < c.length - 2; i += 2) {
-      const ax = c[i] / 1e6, ay = c[i + 1] / 1e6, bx = c[i + 2] / 1e6, by = c[i + 3] / 1e6;
-      if (inside(ax, ay) && inside(bx, by)) { p.push(...drape(ax, ay, dz), ...drape(bx, by, dz)); if (col) cols.push(...col, ...col); }
-    } }
+  const dv = new DataView(buf), nf = dv.getUint32(0, true), items = regId ? [] : null; let o = 4;
+  for (let n = 0; n < nf; n++) {       // each feature: f32 h (age), f32 b (cover depth), u32 nParts, then the parts
+    const h = dv.getFloat32(o, true), b = dv.getFloat32(o + 4, true), np = dv.getUint32(o + 8, true); o += 12;
+    const col = tint && tint(h), dz = bury(b), segs = items ? [] : null;
+    for (let j = 0; j < np; j++) { const nv = dv.getUint32(o, true); o += 4; const c = new Int32Array(buf, o, nv * 2); o += nv * 8;
+      for (let i = 0; i < c.length - 2; i += 2) {
+        const ax = c[i] / 1e6, ay = c[i + 1] / 1e6, bx = c[i + 2] / 1e6, by = c[i + 3] / 1e6;
+        if (inside(ax, ay) && inside(bx, by)) { p.push(...drape(ax, ay, dz), ...drape(bx, by, dz)); if (col) cols.push(...col, ...col);
+          if (segs) segs.push(...ll2m(ax, ay), ...ll2m(bx, by)); }
+      } }
+    if (items) items.push({ props: { z: b }, segs });   // depth from the b-slot; the trailing tag blob fills the rest below
+  }
+  if (items) {                         // trailing tag section (packbin tags=): one json blob per feature, in order
+    if (o + 4 <= buf.byteLength && dv.getUint32(o, true) === nf) { o += 4; const dec = new TextDecoder();
+      for (let n = 0; n < nf; n++) { const len = dv.getUint32(o, true); o += 4;
+        if (len) Object.assign(items[n].props, JSON.parse(dec.decode(new Uint8Array(buf, o, len)))); o += len; } }
+    lineReg[regId] = items.filter((it) => it.segs.length);
+  }
   return { pos: new Float32Array(p), cols: cols && new Float32Array(cols) };
 }
 // one pass over buildings.bin → the wireframe line buffer *and* a click registry:
@@ -210,7 +222,20 @@ const POP = {
   tribune: (p) => `<b>sheffield tribune${p.place ? " · " + p.place : ""}</b><div class="v">${link(p)}</div><div class="m">${p.summary || ""}</div>`,
   rivers: (p) => `<b>${p.river || "River gauge"}</b><div class="v">${p.label || ""}${p.level != null ? " · " + p.level + " m" : ""}</div>${(p.ratio != null || p.at) ? `<div class="m">${p.ratio != null ? Math.round(p.ratio * 100) + "% of typical max" : ""}${p.at ? (p.ratio != null ? " · " : "") + ago(p.at) : ""}</div>` : ""}`,
   gas_assets: (p) => `<b>Gas · above-ground site</b><div class="m">${p.description || ""}</div>`,
+  // buried pipes: depth (m to centreline) is negative for above-ground runs. cadent's keys are short (see cadent.meta).
+  gas_pipes: (p) => `<b>Gas ${p.t || "pipe"}${p.p ? " · " + (GASP[p.p] || p.p) : ""}</b>` +
+    `<div class="v">${[p.m, p.d && p.d + " mm", p.c && "in " + p.c].filter(Boolean).join(" · ") || "Cadent distribution"}</div>` +
+    `<div class="m">${[p.y && "laid " + p.y, depthM(p.z)].filter(Boolean).join(" · ") || "Cadent"}</div>`,
+  gas_nts: pipe("Gas transmission (NTS)"),
+  water_mains: pipe("Water trunk main"),
+  fuel: pipe("Fuel pipeline"),
 };
+const GASP = { LP: "low-pressure", MP: "medium-pressure", IP: "intermediate-pressure", HP: "high-pressure", LTS: "local transmission" };
+const depthM = (z) => z == null ? "" : z < 0 ? "above ground" : `≈${z.toFixed(2)} m to centre`;
+function pipe(label) {   // shared formatter for the osm trunk lines (gas nts / water / fuel) — full geojson props
+  return (p) => `<b>${label}</b><div class="v">${[p.name, p.operator].filter(Boolean).join(" · ") || "—"}</div>` +
+    `<div class="m">${[p.usage, (p.substance || "").replace(/_/g, " "), p.pressure && p.pressure + " bar", p.diameter, depthM(p.depth)].filter(Boolean).join(" · ")}</div>`;
+}
 function wirePicking() {
   const el = $("#popup"), gpu = $("#gpu");
   let dx = 0, dy = 0;
@@ -222,9 +247,28 @@ function wirePicking() {
       el.innerHTML = POP[hit.id](reg[hit.id][hit.i].properties);
       el.style.left = hit.x + 12 + "px"; el.style.top = hit.y + 12 + "px"; el.style.display = "block"; return;
     }
-    el.style.display = "none";
-    const b = pickBuilding(e.clientX, e.clientY); b ? selectBuilding(b) : clearSelect();
+    const b = pickBuilding(e.clientX, e.clientY);
+    if (b) { el.style.display = "none"; selectBuilding(b); return; }   // a building wins over the pipes beneath it
+    const ln = pickLine(e.clientX, e.clientY);
+    if (ln) { el.innerHTML = POP[ln.id](ln.props);
+      el.style.left = e.clientX + 12 + "px"; el.style.top = e.clientY + 12 + "px"; el.style.display = "block"; return; }
+    el.style.display = "none"; clearSelect();
   });
+}
+// nearest pickable line under the cursor: ground-ray → metres, point-to-segment over each
+// visible pipe layer's registry, within a zoom-scaled tolerance. squared distances throughout.
+const PICKLINE = ["gas_pipes", "gas_nts", "water_mains", "fuel"];
+const seg2 = (px, py, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy;
+  let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const ex = ax + t * dx - px, ey = ay + t * dy - py; return ex * ex + ey * ey; };
+function pickLine(cx, cy) {
+  const c = gpuEl(), w = c.clientWidth, h = c.clientHeight;
+  const [px, py] = cam.ground(cx / w * 2 - 1, 1 - cy / h * 2, w / h);
+  let best = null, bd = Math.max(4, cam.dist * 0.02) ** 2;   // tolerance grows with distance so far pipes stay clickable
+  for (const id of PICKLINE) { const rg = lineReg[id]; if (!rg || !vis(id)) continue;
+    for (const it of rg) { const s = it.segs; for (let i = 0; i < s.length; i += 4) {
+      const d = seg2(px, py, s[i], s[i + 1], s[i + 2], s[i + 3]); if (d < bd) { bd = d; best = { id, props: it.props }; } } } }
+  return best;
 }
 
 // ─── click-to-select a building: ground-ray → footprint, a fill prism + an info card ───
@@ -368,9 +412,9 @@ async function layers() {
     ["stops", "tram_stops"], ["bus_stops", "bus_stops"], ["air", "air"], ["news", "news"], ["reddit", "reddit"], ["tribune", "tribune"], ["rivers", "rivers"], ["gas_assets", "gas_assets"]]
     .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
 
-  load("infra"); const gas = lineBin(await gasP, ageTint); R.setLine("gas_pipes", gas.pos, GAS, vis("gas_pipes"), gas.cols);
+  load("infra"); const gas = lineBin(await gasP, ageTint, "gas_pipes"); R.setLine("gas_pipes", gas.pos, GAS, vis("gas_pipes"), gas.cols);
   const trunk = (await pipesP).features;   // osm trunk pipelines, one line layer per kind
-  for (const [id, k, col] of PIPE) R.setLine(id, lineWire({ features: trunk.filter((f) => f.properties.kind === k) }), col, vis(id));
+  for (const [id, k, col] of PIPE) R.setLine(id, lineWire({ features: trunk.filter((f) => f.properties.kind === k) }, id), col, vis(id));
   load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], vis("roads"));
   load("trams"); const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
   load("districts"); for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));
@@ -439,7 +483,7 @@ function poll() {
     cam = new Camera({ target: [...ll2m(c[0], c[1]), terr.elev(c[0], c[1])],
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
     R = new Renderer($("#gpu"), cam); await R.init();
-    window.R = R; window.cam = cam; window.terr = terr;
+    window.R = R; window.cam = cam; window.terr = terr; window.lineReg = lineReg; window.pickLine = pickLine;
     if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], vis("terrain"));
     $("#bar").onclick = () => $("#panel").classList.toggle("folded");
     wirePicking(); requestAnimationFrame(animate); await layers();   // paint from frame one; layers stream in

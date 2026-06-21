@@ -53,7 +53,10 @@ pyproject.toml  zero-dep uv project   .env  OPENROUTER_API_KEY/ANTHROPIC_API_KEY
   the wireframe lines *and* a click registry per building — outer ring, bbox, height, osm tags).
   Clicking a building ground-picks it (`cam.ground`→`m2ll`→point-in-polygon, tallest wins),
   lights it with an amber fill prism (ear-clipped roof + walls) and shows an info `#card` on the
-  left in the legend's style. Runs `animate()` (rAF loop moving trams +
+  left in the legend's style. **Pipes are tooltipped** too: `lineWire`/`lineBin` with a `regId` keep a
+  per-feature `lineReg` (props + visible segments in metres), and `pickLine` ground-rays the cursor →
+  nearest segment within a zoom-scaled tolerance → a `#popup` (`POP.gas_pipes`/`gas_nts`/`water_mains`/`fuel`);
+  a building wins over the pipes beneath it. Runs `animate()` (rAF loop moving trams +
   interpolating live buses, then `drawLabels()`) and `poll()`, wires the toggles + popups.
   **Labels** (`drawLabels`) are the only text: lowercase JetBrains Mono on a 2d `#labels`
   overlay, projected via `R.screen()` each frame, fading in only at high zoom (`LABELS` in
@@ -163,7 +166,9 @@ all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
   install year, scale clamped to the **p2–p98** years (`age_norm`, ~1955–2024, so victorian/stray
   outliers don't blow the **viridis** ramp), the normalised 0..1 riding in the packbin `h` slot
   (-1 = undated → grey). app.js feeds it through `lineBin(…, ageTint)` → per-vertex rgba into the new
-  coloured-line pipeline (`pLineC`/`vlinec` in gpu.js; `setLine`'s optional `cols`). Above-ground sites from
+  coloured-line pipeline (`pLineC`/`vlinec` in gpu.js; `setLine`'s optional `cols`). Each pipe also carries a
+  slim trailing **tag blob** (`cadent.meta` → packbin `tags=`: type/pressure/material/bore-mm/install-year) so
+  clicking it shows a tooltip (`lineBin(…, regId)` builds a pick registry; see line picking below). Above-ground sites from
   `above-ground-infrastructure-assets-open` (Points) → `gas_assets.geojson`. NB **Sheffield itself is
   Northern Gas Networks**, not Cadent — coverage is only the eastern/rotherham fringe of the bbox.
 - **Trunk pipelines (osm, no key)**: `pipelines.py` is the *transmission* complement to cadent's

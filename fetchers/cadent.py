@@ -72,6 +72,18 @@ def depth(f):  # metres from surface to pipe *centre* = cover + radius; negative
     return cov + bore(p) / 2
 
 
+def meta(f):  # slim per-pipe metadata for the click tooltip (depth rides the bin b-slot, so not repeated here)
+    p = f["properties"]
+    return {k: v for k, v in (
+        ("t", "service" if p.get("type") == "Service Pipe" else "main"),
+        ("p", p.get("pressure")),                               # tier label lp/mp/ip/hp/lts
+        ("m", p.get("material")),                               # carried-medium pipe material (pe, …)
+        ("d", round(bore(p) * 1000) or None),                   # outside bore (carrier when inserted) in mm
+        ("y", yr(f)),                                           # install year
+        ("c", p.get("carr_mat")),                               # host main material where a pe insert runs through one
+    ) if v}
+
+
 def site(f):  # slim an above-ground site point down to what the popup needs
     return {"type": "Feature", "geometry": f["geometry"],
             "properties": {"description": f["properties"].get("description", "Above Ground Site")}}
@@ -81,6 +93,6 @@ if __name__ == "__main__":
     log("cadent: exporting gas pipe infrastructure…")
     pipes = export("gas-pipe-infrastructure-gpi_open")
     ramp = age_norm(pipes)                                       # per-segment h = install-age 0..1 (viridis), b = burial depth (m)
-    packbin("gas_pipes.bin", pipes, parts, lambda f: (ramp(f)[0], depth(f)))
+    packbin("gas_pipes.bin", pipes, parts, lambda f: (ramp(f)[0], depth(f)), tags=meta)
     log("cadent: exporting above-ground sites…")
     write("gas_assets.geojson", fc([site(f) for f in export("above-ground-infrastructure-assets-open")]))

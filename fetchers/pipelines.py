@@ -35,7 +35,8 @@ def feature(e):
     if not k or len(e.get("geometry", [])) < 2:
         return None
     return {"type": "Feature", "properties": {
-        "kind": k, "depth": DEPTH[k], "operator": t.get("operator", ""), "substance": t.get("substance", ""), "name": t.get("name", "")},
+        "kind": k, "depth": DEPTH[k], "operator": t.get("operator", ""), "substance": t.get("substance", ""), "name": t.get("name", ""),
+        "usage": t.get("usage", ""), "pressure": t.get("pressure", ""), "diameter": t.get("diameter", "")},  # extras for the click tooltip
         "geometry": {"type": "LineString", "coordinates": [[p["lon"], p["lat"]] for p in e["geometry"]]}}
 
 
