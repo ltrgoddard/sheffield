@@ -216,7 +216,7 @@ const POP = {
   trams: (p) => `<b>Supertram ${p.ref || ""}</b><div class="v">${p.name || ""}</div>`,
   vehicles: (p) => `<b>Bus ${p.line || "?"}${p.dest ? " → " + p.dest : ""}</b>${(p.fleet || p.kind) ? `<div class="m">${[p.fleet, p.kind].filter(Boolean).join(" · ")}</div>` : ""}`,
   trees: (p) => `<b>Tree</b><div class="v">${p.species || "—"}</div>${p.height ? `<div class="m">${p.height} m</div>` : ""}`,
-  air: (p) => `<b>Air · AQI ${p.aqi ?? "—"}</b><div class="v">PM2.5 ${p.pm25 ?? "—"} · PM10 ${p.pm10 ?? "—"} · NO₂ ${p.no2 ?? "—"} · O₃ ${p.o3 ?? "—"}</div>${p.at ? `<div class="m">${ago(p.at)}</div>` : ""}`,
+  air: (p) => `<b>${p.name ?? "Air monitor"}</b><div class="v">NO₂ ${p.no2 ?? "—"} · PM2.5 ${p.pm25 ?? "—"} · PM10 ${p.pm10 ?? "—"} µg/m³</div><div class="m">${p.type ?? "monitor"}${p.year ? ` · ${p.year} mean` : ""}</div>`,
   news: (p) => `<b>${p.category || "News"}</b><div class="v">${link(p)}</div><div class="m">${p.summary || p.place || ""}</div>`,
   reddit: (p) => `<b>r/sheffield · ${p.category || "post"}</b><div class="v">${link(p)}</div><div class="m">${p.place || ""}</div>`,
   tribune: (p) => `<b>sheffield tribune${p.place ? " · " + p.place : ""}</b><div class="v">${link(p)}</div><div class="m">${p.summary || ""}</div>`,

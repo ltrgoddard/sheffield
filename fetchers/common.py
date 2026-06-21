@@ -38,9 +38,9 @@ def overpass(query, **kw):
     return get_json("https://overpass-api.de/api/interpreter", data={"data": query}, **kw)
 
 
-def arcgis(service, layer, where="1=1", fields="*", extra=None, page=2000):
+def arcgis(service, layer, where="1=1", fields="*", extra=None, page=2000, server="MapServer"):
     """query a sheffield arcgis layer, paging through all features as geojson."""
-    base = f"{SCC}/{service}/MapServer/{layer}/query"
+    base = f"{SCC}/{service}/{server}/{layer}/query"
     feats, offset = [], 0
     while True:
         p = {"where": where, "outFields": fields, "outSR": 4326, "f": "geojson",

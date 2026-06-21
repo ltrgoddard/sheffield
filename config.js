@@ -14,7 +14,7 @@ export const FEEDS = {
   buildings: 0, roads: 0, tram_routes: 0, tram_stops: 0, bus_stops: 0,
   vehicles: 12e3,           // live buses, fetched in-browser from bustimes.org
   rivers: 6e4,              // live ea river-level gauges
-  air: 6e5,                 // synthesised air-quality grid (hourly source)
+  air: 36e5,                // scc air-quality monitors (annual means; near-static)
   crime: 0, faults: 3e5, cctv: 0,
   trees: 0,                 // osm street/park trees
   planning: 0,              // council development-site polygons
