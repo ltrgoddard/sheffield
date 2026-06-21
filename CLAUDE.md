@@ -86,10 +86,9 @@ all of `data/`, geojson + packed `.bin` + terrain). Two workflows:
   `gh release upload --clobber` 403s without write. The heavy static layers (buildings `.bin`,
   roads, trams, terrain, **gas pipes `.bin` + sites**) carry over from the release untouched —
   rebuild those locally with `make` + `make lidar` and `gh release upload latest-data data.zip
-  --clobber` when they need refreshing. (After this change the live release still holds the old
-  `buildings.geojson`, not `buildings.bin`/`gas_pipes.bin` — re-run `make` and re-upload once, or
-  buildings/gas will 404 to empty on the deployed site.)
-  Live buses aren't in the cron at all (the browser pulls them direct from bustimes.org).
+  --clobber` when they need refreshing. Note the frontend fetches `buildings.bin`/`gas_pipes.bin`
+  (not geojson) for those layers, so the release must carry the `.bin` — a release missing it 404s
+  the layer to empty. Live buses aren't in the cron at all (the browser pulls them direct from bustimes.org).
 
 ## Conventions
 
