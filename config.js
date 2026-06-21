@@ -30,7 +30,7 @@ export const FEEDS = {
 // `base` is the base map (3d buildings, lidar relief, osm roads) — the only group on by default.
 export const GROUPS = [
   ["base", "base", [
-    ["buildings", "3d buildings", true],
+    ["buildings", "buildings", true],
     ["terrain", "lidar", true],
     ["roads", "osm", true],
   ]],
@@ -47,18 +47,18 @@ export const GROUPS = [
     ["clean_air", "clean air zone", false],
   ]],
   ["events", "events", [
-    ["cctv", "cctv cameras", false],
-    ["faults", "fault reports", false],
+    ["cctv", "cctv", false],
+    ["faults", "faults", false],
     ["crime", "crime", false],
-    ["news", "city news", false],
+    ["news", "news", false],
     ["reddit", "r/sheffield", false],
-    ["tribune", "sheffield tribune", false],
+    ["tribune", "tribune", false],
   ]],
   ["administrative", "government", [
     ["wards", "wards", false],
-    ["planning", "development sites", false],
+    ["planning", "development", false],
   ]],
-  ["infra", "infra", [
+  ["infra", "utilities", [
     ["gas_pipes", "gas pipes", false],
     ["gas_assets", "gas sites", false],
     ["gas_nts", "gas transmission", false],
