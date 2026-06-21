@@ -173,11 +173,13 @@ all of `data/`, geojson + packed `.bin` incl. `terrain.bin`). Two workflows:
   Northern Gas Networks**, not Cadent — coverage is only the eastern/rotherham fringe of the bbox.
 - **Trunk pipelines (osm, no key)**: `pipelines.py` is the *transmission* complement to cadent's
   *distribution* — one overpass `man_made=pipeline` query over the bbox, split by `substance`/`usage`
-  into three `kind`s the frontend draws as separate toggleable line layers: `gas` (the uk **national
+  into three `kind`s the frontend draws as line layers: `gas` (the uk **national
   transmission system** — national gas's high-pressure backbone, `usage=transmission`), `water` (severn
   trent / yorkshire water trunk mains) and `fuel` (the exolum multi-product line). All written to one
-  small `pipelines.geojson` (~30 kb, drawn with `lineWire`, no `.bin`); app.js's `PIPE` table maps each
-  kind → layer id + colour. Distribution-pressure gas (overlaps cadent) and minor industrial lines
+  small `pipelines.geojson` (~30 kb, drawn with `lineWire`, no `.bin`); app.js's `PIPE` table maps the
+  water/fuel kinds → toggleable layer id + colour, while the `gas` nts backbone has **no toggle of its
+  own** — it folds into the `gas_pipes` layer (`TOG.gas_pipes` drives both renderer layers; its own
+  colour/popup/registry stay separate). Distribution-pressure gas (overlaps cadent) and minor industrial lines
   (oxygen/cement/sewage/heat) are dropped. Each feature also carries an inferred **`depth`** (see below).
 - **Pipe burial depth (rendered below the terrain)**: pipes are draped at their real depth of cover, not
   on the surface. Depths are *inferred from each feed's metadata* against uk standards (njug §4.4 /

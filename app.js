@@ -27,16 +27,18 @@ const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() 
       fleet: v.vehicle?.name || "", kind: v.vehicle?.features || "" } })) }));
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
-const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6], BLDG = [.62, .64, .68, .8];
-// osm trunk pipelines (pipelines.geojson), split by `kind` into one toggleable line layer each.
-const PIPE = [["gas_nts", "gas", [1, .3, .12, .9]], ["water_mains", "water", [.3, .7, 1, .7]], ["fuel", "fuel", [.85, .85, .2, .85]]];
+const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6], GAS_NTS = [1, .3, .12, .9], BLDG = [.62, .64, .68, .8];
+// osm trunk pipelines (pipelines.geojson), split by `kind` into one toggleable line layer each;
+// the gas-kind backbone (nts) has no toggle of its own — it folds into the gas_pipes layer (see layers()).
+const PIPE = [["water_mains", "water", [.3, .7, 1, .7]], ["fuel", "fuel", [.85, .85, .2, .85]]];
 const FLAT = GROUPS.flatMap(([, , items]) => items);
 const on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 
 let R, terr, cam, bldgs = [], sel = null, selT0 = 0;
-// a toggle drives the like-named renderer layer; only these two diverge — trams owns
-// the static route line (its dots are gated per-frame by vis()), vehicles is all dynamic.
-const TOG = { trams: ["tram_routes"], vehicles: [] }, tog = (id) => TOG[id] || [id];
+// a toggle drives the like-named renderer layer; a few diverge — trams owns the static route
+// line (its dots are gated per-frame by vis()), vehicles is all dynamic, and gas_pipes also
+// drives the osm nts backbone folded in beside the cadent distribution.
+const TOG = { trams: ["tram_routes"], vehicles: [], gas_pipes: ["gas_pipes", "gas_nts"] }, tog = (id) => TOG[id] || [id];
 
 // ─── geometry builders: geojson → flat float32 line/point arrays in local metres ───
 const drape = (lng, lat, dz = 0) => { const [x, y] = ll2m(lng, lat); return [x, y, terr.elev(lng, lat) + dz]; };
@@ -265,7 +267,7 @@ function wirePicking() {
 }
 // nearest pickable line under the cursor: ground-ray → metres, point-to-segment over each
 // visible pipe layer's registry, within a zoom-scaled tolerance. squared distances throughout.
-const PICKLINE = ["gas_pipes", "gas_nts", "water_mains", "fuel"];
+const PICKLINE = ["gas_pipes", "gas_nts", "water_mains", "fuel"], LINETOG = { gas_nts: "gas_pipes" };
 const seg2 = (px, py, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy;
   let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
   const ex = ax + t * dx - px, ey = ay + t * dy - py; return ex * ex + ey * ey; };
@@ -273,7 +275,7 @@ function pickLine(cx, cy) {
   const c = gpuEl(), w = c.clientWidth, h = c.clientHeight;
   const [px, py] = cam.ground(cx / w * 2 - 1, 1 - cy / h * 2, w / h);
   let best = null, bd = Math.max(4, cam.dist * 0.02) ** 2;   // tolerance grows with distance so far pipes stay clickable
-  for (const id of PICKLINE) { const rg = lineReg[id]; if (!rg || !vis(id)) continue;
+  for (const id of PICKLINE) { const rg = lineReg[id]; if (!rg || !vis(LINETOG[id] || id)) continue;
     for (const it of rg) { const s = it.segs; for (let i = 0; i < s.length; i += 4) {
       const d = seg2(px, py, s[i], s[i + 1], s[i + 2], s[i + 3]); if (d < bd) { bd = d; best = { id, props: it.props }; } } } }
   return best;
@@ -431,6 +433,8 @@ async function layers() {
 
   load("infra"); const gas = lineBin(await gasP, ageTint, "gas_pipes"); R.setLine("gas_pipes", gas.pos, GAS, vis("gas_pipes"), gas.cols);
   const trunk = (await pipesP).features;   // osm trunk pipelines, one line layer per kind
+  // the gas-kind backbone folds into the gas_pipes toggle (own layer/colour/popup, no toggle of its own)
+  R.setLine("gas_nts", lineWire({ features: trunk.filter((f) => f.properties.kind === "gas") }, "gas_nts"), GAS_NTS, vis("gas_pipes"));
   for (const [id, k, col] of PIPE) R.setLine(id, lineWire({ features: trunk.filter((f) => f.properties.kind === k) }, id), col, vis(id));
   load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], vis("roads"));
   load("trams"); const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
