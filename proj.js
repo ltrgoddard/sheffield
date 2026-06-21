@@ -4,8 +4,9 @@ import { CITY, TERRAIN, BBOX } from "./config.js";
 
 const D = Math.PI / 180, [LNG0, LAT0] = CITY.center;
 const MLNG = 111320 * Math.cos(LAT0 * D), MLAT = 110540;
-// local tangent-plane metres, east/north, origin at the city centre.
+// local tangent-plane metres, east/north, origin at the city centre — and its inverse.
 export const ll2m = (lng, lat) => [(lng - LNG0) * MLNG, (lat - LAT0) * MLAT];
+export const m2ll = (x, y) => [x / MLNG + LNG0, y / MLAT + LAT0];
 
 // ─── vec3 + 4×4 column-major matrices — exactly what the camera needs ───
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];

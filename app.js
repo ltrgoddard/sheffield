@@ -1,7 +1,7 @@
 // glue: load the open data, fold it into gpu geometry, run the live feeds and the ui.
 // the whole contract is still data/*.geojson — only the renderer changed.
 import { CITY, BBOX, FEEDS, GROUPS, TRAM, LABELS } from "./config.js";
-import { Camera, Terrain, ll2m } from "./proj.js";
+import { Camera, Terrain, ll2m, m2ll } from "./proj.js";
 import { Renderer } from "./gpu.js";
 
 const D = Math.PI / 180, $ = (s) => document.querySelector(s);
@@ -33,7 +33,7 @@ const PIPE = [["gas_nts", "gas", [1, .3, .12, .9]], ["water_mains", "water", [.3
 const FLAT = GROUPS.flatMap(([, , items]) => items);
 const on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 
-let R, terr, cam;
+let R, terr, cam, bldgs = [], sel = null, selT0 = 0;
 // a toggle drives the like-named renderer layer; only these two diverge — trams owns
 // the static route line (its dots are gated per-frame by vis()), vehicles is all dynamic.
 const TOG = { trams: ["tram_routes"], vehicles: [] }, tog = (id) => TOG[id] || [id];
@@ -76,17 +76,33 @@ function lineBin(buf) {            // flat polylines (gas pipes) — the binary 
     }
   return new Float32Array(p);
 }
-function buildingBin(buf) {        // extruded footprint wireframes (footprint+roof+verticals) from the packed buffer
-  const p = []; if (!buf) return new Float32Array(p);
-  for (const { h: H, b: B, parts } of feats(buf)) for (const c of parts)
-    for (let i = 0; i < c.length - 2; i += 2) {
-      const lax = c[i] / 1e6, lay = c[i + 1] / 1e6, lbx = c[i + 2] / 1e6, lby = c[i + 3] / 1e6;
-      if (!(inside(lax, lay) && inside(lbx, lby))) continue;
-      const [ax, ay] = ll2m(lax, lay), [bx, by] = ll2m(lbx, lby);
-      const ga = terr.elev(lax, lay), gb = terr.elev(lbx, lby);
-      p.push(ax, ay, ga + B, bx, by, gb + B, ax, ay, ga + H, bx, by, gb + H, ax, ay, ga + B, ax, ay, ga + H);
+// one pass over buildings.bin → the wireframe line buffer *and* a click registry:
+// each item keeps its outer ring (lng/lat, for point-in-polygon picking + the fill
+// prism), its bbox, height/base and the trailing osm tags (added by packbin(tags=)).
+function buildingData(buf) {
+  const p = [], items = []; if (!buf) return { lines: new Float32Array(p), items };
+  const dv = new DataView(buf), nf = dv.getUint32(0, true); let o = 4;
+  for (let n = 0; n < nf; n++) {
+    const H = dv.getFloat32(o, true), B = dv.getFloat32(o + 4, true), np = dv.getUint32(o + 8, true); o += 12;
+    let ring = null, bb = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let j = 0; j < np; j++) { const nv = dv.getUint32(o, true); o += 4; const c = new Int32Array(buf, o, nv * 2); o += nv * 8;
+      for (let i = 0; i < c.length - 2; i += 2) {
+        const lax = c[i] / 1e6, lay = c[i + 1] / 1e6, lbx = c[i + 2] / 1e6, lby = c[i + 3] / 1e6;
+        if (!(inside(lax, lay) && inside(lbx, lby))) continue;
+        const [ax, ay] = ll2m(lax, lay), [bx, by] = ll2m(lbx, lby), ga = terr.elev(lax, lay), gb = terr.elev(lbx, lby);
+        p.push(ax, ay, ga + B, bx, by, gb + B, ax, ay, ga + H, bx, by, gb + H, ax, ay, ga + B, ax, ay, ga + H);
+      }
+      if (j === 0) { ring = []; for (let i = 0; i < c.length; i += 2) { const x = c[i] / 1e6, y = c[i + 1] / 1e6; ring.push([x, y]);
+        if (x < bb[0]) bb[0] = x; if (x > bb[2]) bb[2] = x; if (y < bb[1]) bb[1] = y; if (y > bb[3]) bb[3] = y; } }
     }
-  return new Float32Array(p);
+    items.push({ ring, bb, H, B, tags: {} });   // one item per packed feature, in order
+  }
+  if (o + 4 <= buf.byteLength && dv.getUint32(o, true) === nf) {   // trailing tag section, one json blob per feature in order
+    o += 4; const dec = new TextDecoder();
+    for (let n = 0; n < nf; n++) { const len = dv.getUint32(o, true); o += 4;
+      if (len) items[n].tags = JSON.parse(dec.decode(new Uint8Array(buf, o, len))); o += len; }
+  }
+  return { lines: new Float32Array(p), items };
 }
 
 // ─── point feeds: one style table, a feature registry backing picking + popups ───
@@ -160,6 +176,8 @@ function animate(now) {
     const k = Math.min(1, (now - v.t0) / DUR);
     v.cur = [v.from[0] + (v.to[0] - v.from[0]) * k, v.from[1] + (v.to[1] - v.from[1]) * k];
     return { type: "Feature", geometry: { type: "Point", coordinates: v.cur }, properties: v.props }; }), vis("vehicles"));
+  if (sel) { const e = Math.min(1, (now - selT0) / 380), s = e * e * (3 - 2 * e);   // smoothstep grow + fade-in
+    R.fillStyle([SELCOL[0], SELCOL[1], SELCOL[2], .26 * s], s); }
   R.frame(); drawLabels(); requestAnimationFrame(animate);
 }
 
@@ -185,13 +203,96 @@ const POP = {
   gas_assets: (p) => `<b>Gas · above-ground site</b><div class="m">${p.description || ""}</div>`,
 };
 function wirePicking() {
-  const el = $("#popup");
-  $("#gpu").addEventListener("click", (e) => {
+  const el = $("#popup"), gpu = $("#gpu");
+  let dx = 0, dy = 0;
+  gpu.addEventListener("pointerdown", (e) => { dx = e.clientX; dy = e.clientY; });
+  gpu.addEventListener("click", (e) => {
+    if (Math.hypot(e.clientX - dx, e.clientY - dy) > 6) return;   // a drag, not a click — leave selection be
     const hit = R.pick(e.clientX, e.clientY);
-    if (!hit || !POP[hit.id]) { el.style.display = "none"; return; }
-    el.innerHTML = POP[hit.id](reg[hit.id][hit.i].properties);
-    el.style.left = hit.x + 12 + "px"; el.style.top = hit.y + 12 + "px"; el.style.display = "block";
+    if (hit && POP[hit.id]) {   // a point feed wins — show its popup, keep any building card
+      el.innerHTML = POP[hit.id](reg[hit.id][hit.i].properties);
+      el.style.left = hit.x + 12 + "px"; el.style.top = hit.y + 12 + "px"; el.style.display = "block"; return;
+    }
+    el.style.display = "none";
+    const b = pickBuilding(e.clientX, e.clientY); b ? selectBuilding(b) : clearSelect();
   });
+}
+
+// ─── click-to-select a building: ground-ray → footprint, a fill prism + an info card ───
+const gpuEl = () => $("#gpu");
+// even-odd point-in-polygon, in lng/lat (the ring is stored that way).
+const pip = (x, y, r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+  const xi = r[i][0], yi = r[i][1], xj = r[j][0], yj = r[j][1];
+  if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+const polyArea = (ring) => { const M = ring.map(([a, b]) => ll2m(a, b)); let a = 0;
+  for (let i = 0, j = M.length - 1; i < M.length; j = i++) a += M[j][0] * M[i][1] - M[i][0] * M[j][1]; return Math.abs(a) / 2; };
+// the ground point under the cursor → the tallest footprint that contains it.
+function pickBuilding(cx, cy) {
+  if (!vis("buildings") || !bldgs.length) return null;
+  const c = gpuEl(), w = c.clientWidth, h = c.clientHeight;
+  const [mx, my] = cam.ground(cx / w * 2 - 1, 1 - cy / h * 2, w / h), [lng, lat] = m2ll(mx, my);
+  let best = null;
+  for (const it of bldgs) { const b = it.bb; if (lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) continue;
+    if (pip(lng, lat, it.ring) && (!best || it.H > best.H)) best = it; }
+  return best;
+}
+// minimal o(n²) ear-clipping (footprints are tiny) → roof-cap triangles; ccw-normalised.
+function earcut(pts) {
+  const n = pts.length; if (n < 3) return [];
+  let ar = 0; for (let i = 0, j = n - 1; i < n; j = i++) ar += (pts[j][0] - pts[i][0]) * (pts[j][1] + pts[i][1]);
+  const idx = [...Array(n).keys()]; if (ar < 0) idx.reverse();
+  const cr = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const inT = (p, a, b, c) => cr(a, b, p) >= 0 && cr(b, c, p) >= 0 && cr(c, a, p) >= 0;
+  const tri = []; let guard = n * n;
+  while (idx.length > 3 && guard-- > 0) for (let k = 0; k < idx.length; k++) {
+    const L = idx.length, A = pts[idx[(k + L - 1) % L]], B = pts[idx[k]], C = pts[idx[(k + 1) % L]];
+    if (cr(A, B, C) <= 0) continue;
+    let ear = true; for (const m of idx) { const P = pts[m]; if (P === A || P === B || P === C) continue; if (inT(P, A, B, C)) { ear = false; break; } }
+    if (ear) { tri.push([A, B, C]); idx.splice(k, 1); break; }
+  }
+  if (idx.length === 3) tri.push([pts[idx[0]], pts[idx[1]], pts[idx[2]]]);
+  return tri;
+}
+// the selected building as a solid prism: walls + ear-clipped roof. each vertex carries
+// (x, y, zTop, zBase) — the shader lerps base→top so it grows in on selection.
+function fillGeom(it) {
+  const M = it.ring.map(([lng, lat]) => { const [x, y] = ll2m(lng, lat); return [x, y, terr.elev(lng, lat)]; });
+  const n = M.length, p = [], V = (m, z) => p.push(m[0], m[1], z, m[2] + it.B);
+  for (let i = 0; i < n - 1; i++) { const a = M[i], b = M[i + 1], aB = a[2] + it.B, bB = b[2] + it.B, aH = a[2] + it.H, bH = b[2] + it.H;
+    V(a, aB); V(b, bB); V(b, bH); V(a, aB); V(b, bH); V(a, aH); }
+  for (const t of earcut(M.slice(0, n - 1))) for (const m of t) V(m, m[2] + it.H);
+  return new Float32Array(p);
+}
+const SELCOL = [1, .78, .38];
+function selectBuilding(it) { sel = it; selT0 = performance.now(); R.setFill(fillGeom(it)); showCard(it); }
+function clearSelect() { sel = null; R.clearFill(); $("#card").classList.remove("show"); }
+
+const human = (s) => (s || "").replace(/_/g, " ");
+const wiki = (w) => { const m = /^(\w{2,3}):(.+)$/.exec(w); const [lang, page] = m ? [m[1], m[2]] : ["en", w];
+  return `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(page.replace(/ /g, "_"))}`; };
+const a2 = (h, txt) => `<a href="${h}" target="_blank" rel="noopener">${txt}</a>`;
+function showCard(it) {
+  const t = it.tags || {}, H = it.H, B = it.B, lv = parseFloat(t["building:levels"]);
+  const floors = lv || Math.max(1, Math.round((H - B) / 3));
+  const fn = t.amenity || t.shop || t.office || t.tourism || t.leisure || t.man_made || t.historic;
+  const typ = human(t.building && t.building !== "yes" ? t.building : fn || "building");
+  const addr = [t["addr:housenumber"], t["addr:street"]].filter(Boolean).join(" ");
+  const rows = [
+    ["use", fn && human(fn) !== typ ? human(fn) : ""],
+    ["height", `${H} m · ~${floors} ${floors === 1 ? "floor" : "floors"}`],
+    ["footprint", `${polyArea(it.ring).toLocaleString("en-GB", { maximumFractionDigits: 0 })} m²`],
+    ["built", t.start_date || ""],
+    ["address", [addr, t["addr:postcode"]].filter(Boolean).join(", ")],
+    ["operator", t.operator || t.brand || ""],
+    ["faith", [human(t.denomination), human(t.religion)].filter(Boolean).join(" · ")],
+    ["listed", t.heritage ? `grade ${t.heritage}` : (t.listed_status || "")],
+  ];
+  const links = [t.website ? a2(t.website, "website") : "", t.wikipedia ? a2(wiki(t.wikipedia), "wikipedia") : ""].filter(Boolean).join(" · ");
+  const name = (t.name || typ).toLowerCase();
+  $("#card").innerHTML = `<i class="x">✕</i><h3>${name}</h3>${t.name ? `<b>${typ.toLowerCase()}</b>` : ""}` +
+    rows.filter((r) => r[1]).map((r) => `<div class="r"><span>${r[0]}</span><em>${r[1].toLowerCase()}</em></div>`).join("") +
+    (links ? `<div class="lk">${links}</div>` : "");
+  $("#card").classList.add("show"); $("#card .x").onclick = clearSelect;
 }
 
 // ─── text labels: lowercase jetbrains mono on a 2d overlay, projected each frame ───
@@ -273,11 +374,13 @@ async function layers() {
   // buildings last: ~12k footprints is the heaviest fold — by now the terrain, roads,
   // trams and feeds are already on screen (animate() has been running since startup),
   // so the city wireframe fills in rather than blocking the whole first paint.
-  R.setLine("buildings", buildingBin(await buildingsP), BLDG, vis("buildings"));
+  const bd = buildingData(await buildingsP); bldgs = bd.items;   // items back click-to-select; lines are the wireframe
+  R.setLine("buildings", bd.lines, BLDG, vis("buildings"));
 }
 
 // ─── ui: toggles + legend ───
 const set = (id, s) => { s ? on.add(id) : on.delete(id);
+  if (id === "buildings" && !s) clearSelect();   // hide a stale card/fill when buildings go off
   $(`.row[data-id="${id}"]`)?.classList.toggle("on", s); tog(id).forEach((l) => R.setVisible(l, s)); };
 const grpItems = (gid) => GROUPS.find((g) => g[0] === gid)[2];
 function buildUI() {

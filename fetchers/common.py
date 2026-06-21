@@ -70,14 +70,16 @@ def write(name, obj):
     return p
 
 
-def packbin(name, features, lines, heights=None):
+def packbin(name, features, lines, heights=None, tags=None):
     """pack polyline/ring geometry straight into a gpu buffer — no json for the
     browser to parse, ~5-11× smaller raw than geojson. layout (little-endian):
       u32 nFeatures; per feature: f32 h, f32 b, u32 nParts;
       per part: u32 nVerts, then nVerts × (i32 lon, i32 lat) ×1e6 (~0.1 m grid).
     `lines(geom)`→iterable of coord lists; `heights(feat)`→(h,b) for extruded
-    wireframes, else flat. atomic temp-then-rename like write()."""
-    out, nf = bytearray(), 0
+    wireframes, else flat. if `tags(feat)`→dict is given, a trailing section is
+    appended (u32 nFeatures, then per feature u32 len + utf8 json) so click-time
+    metadata rides along without bloating the geometry the readers walk. atomic."""
+    out, nf, tg = bytearray(), 0, bytearray()
     for f in features:
         parts = [ln for ln in lines(f["geometry"]) if len(ln) >= 2]
         if not parts:
@@ -87,10 +89,15 @@ def packbin(name, features, lines, heights=None):
         for ln in parts:
             flat = [round(c * 1e6) for xy in ln for c in xy[:2]]
             out += struct.pack(f"<I{len(flat)}i", len(ln), *flat)
+        if tags is not None:
+            d = tags(f) or {}
+            j = json.dumps(d, separators=(",", ":"), ensure_ascii=False).encode() if d else b""
+            tg += struct.pack("<I", len(j)) + j
         nf += 1
     DATA.mkdir(exist_ok=True)
     p, tmp = DATA / name, DATA / (name + ".tmp")
-    tmp.write_bytes(struct.pack("<I", nf) + out)
+    body = struct.pack("<I", nf) + out + (struct.pack("<I", nf) + tg if tags is not None else b"")
+    tmp.write_bytes(body)
     os.replace(tmp, p)
     (DATA / (p.stem + ".geojson")).unlink(missing_ok=True)  # a layer is bin xor geojson — drop any superseded geojson
     log(f"  → {name}  {nf} features, {p.stat().st_size // 1024} kb")
