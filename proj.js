@@ -1,6 +1,6 @@
 // the cpu side: a local-metre projection, the orbit camera's matrices, and the lidar
 // terrain decoded into a height-field we both drape geometry on and draw as a wire grid.
-import { CITY, TERRAIN } from "./config.js";
+import { CITY, TERRAIN, BBOX } from "./config.js";
 
 const D = Math.PI / 180, [LNG0, LAT0] = CITY.center;
 const MLNG = 111320 * Math.cos(LAT0 * D), MLAT = 110540;
@@ -67,6 +67,7 @@ export class Terrain {
   // every rendered feature is trimmed to this. (no terrain → don't clip, so the flat fallback draws.)
   covers(lng, lat) {
     if (!this.ok) return true;
+    if (lng < BBOX.w || lng > BBOX.e || lat < BBOX.s || lat > BBOX.n) return false;  // tiles overhang bbox; pin the extent to it so terrain & osm share it
     const gx = (lon2x(lng, this.z) - this.x0) * this.SP | 0, gy = (lat2y(lat, this.z) - this.y0) * this.SP | 0;
     return gx >= 0 && gy >= 0 && gx < this.W && gy < this.H && this.g[gy * this.W + gx] !== -32768;
   }
@@ -75,11 +76,12 @@ export class Terrain {
     const s = TERRAIN.step, W = this.W, H = this.H, g = this.g, pos = [], Nz = N(this.z);
     const node = (gx, gy) => { const lng = (this.x0 + gx / this.SP) / Nz * 360 - 180,
       lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (this.y0 + gy / this.SP) / Nz))) / D, [x, y] = ll2m(lng, lat);
-      const v = g[gy * W + gx]; return [x, y, v === -32768 ? NaN : v / 10 * TERRAIN.exag]; };
+      const v = g[gy * W + gx]; return [x, y, v === -32768 ? NaN : v / 10 * TERRAIN.exag,
+        lng >= BBOX.w && lng <= BBOX.e && lat >= BBOX.s && lat <= BBOX.n]; };  // 4th: inside bbox (tiles overhang it)
     for (let gy = 0; gy < H - s; gy += s) for (let gx = 0; gx < W - s; gx += s) {
       const p = node(gx, gy), a = node(gx + s, gy), b = node(gx, gy + s);
-      if (isFinite(p[2]) && isFinite(a[2])) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
-      if (isFinite(p[2]) && isFinite(b[2])) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
+      if (isFinite(p[2]) && isFinite(a[2]) && p[3] && a[3]) pos.push(p[0], p[1], p[2], a[0], a[1], a[2]);
+      if (isFinite(p[2]) && isFinite(b[2]) && p[3] && b[3]) pos.push(p[0], p[1], p[2], b[0], b[1], b[2]);
     }
     return new Float32Array(pos);
   }
