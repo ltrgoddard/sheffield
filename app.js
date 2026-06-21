@@ -26,7 +26,7 @@ const liveBuses = () => fetch(BUSES).then((r) => r.ok ? r.json() : []).catch(() 
     properties: { vehicle: v.id, line: v.service?.line_name || "", operator: v.vehicle?.name || "" } })) }));
 
 // colours as linear rgba; the city is white hairlines, the live things pick up a tint.
-const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6];
+const WHITE = [1, 1, 1, .85], FAINT = [1, 1, 1, .28], AMBER = [.98, .75, .2, 1], GAS = [1, .5, .12, .6], BLDG = [.62, .64, .68, .8];
 const FLAT = GROUPS.flatMap(([, , items]) => items);
 const on = new Set(FLAT.filter((l) => l[2]).map((l) => l[0])), vis = (id) => on.has(id);
 
@@ -227,7 +227,7 @@ function drawLabels() {
       const tw = lx.measureText(L.t).width; if (!fits(s[0] + 7, s[1], tw)) continue;
       glyph(s[0] + 7, s[1], L.t, L.tint, stopA, 0); } }
   const stA = fade(dist, LABELS.street);                        // then street names fill the gaps
-  if (stA > 0) { lx.font = `400 10px '${LABELS.font}', monospace`;
+  if (stA > 0 && vis("roads")) { lx.font = `400 10px '${LABELS.font}', monospace`;
     const [tx, ty] = cam.target, near2 = LABELS.nearStreet ** 2;   // cull roads far from the camera focus
     for (const L of streetLabels) {
       const cx = (L.a[0] + L.b[0]) / 2 - tx, cy = (L.a[1] + L.b[1]) / 2 - ty; if (cx * cx + cy * cy > near2) continue;
@@ -253,7 +253,7 @@ async function layers() {
     .map(([id, file]) => [id, (cached.has(file) ? cgeo : geo)(file)]);
 
   load("infra"); R.setLine("gas_pipes", lineBin(await gasP), GAS, vis("gas_pipes"));
-  load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], true);
+  load("roads"); const roads = await roadsP; buildStreetLabels(roads); R.setLine("roads", lineWire(roads), [1, 1, 1, .5], vis("roads"));
   load("trams"); const routes = await routesP; seedTrams(routes); R.setLine("tram_routes", lineWire(routes), [1, 1, 1, .3], vis("trams"));
   load("districts"); for (const [id, col, p] of lineP) R.setLine(id, lineWire(await p), col, id === "boundary" || vis(id));
   load("feeds"); for (const [id, p] of ptP) setPoints(id, (await p).features, vis(id));
@@ -265,7 +265,7 @@ async function layers() {
   // buildings last: ~12k footprints is the heaviest fold — by now the terrain, roads,
   // trams and feeds are already on screen (animate() has been running since startup),
   // so the city wireframe fills in rather than blocking the whole first paint.
-  R.setLine("buildings", buildingBin(await buildingsP), WHITE, true);
+  R.setLine("buildings", buildingBin(await buildingsP), BLDG, vis("buildings"));
 }
 
 // ─── ui: toggles + legend ───
@@ -320,7 +320,7 @@ function poll() {
       dist: CITY.dist, az: CITY.bearing * D, pitch: CITY.pitch * D, fov: CITY.fov });
     R = new Renderer($("#gpu"), cam); await R.init();
     window.R = R; window.cam = cam; window.terr = terr;
-    if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], true);
+    if (terr.ok) R.setLine("terrain", terr.wire(), [1, 1, 1, .12], vis("terrain"));
     $("#bar").onclick = () => $("#panel").classList.toggle("folded");
     wirePicking(); requestAnimationFrame(animate); await layers();   // paint from frame one; layers stream in
   } catch (e) {

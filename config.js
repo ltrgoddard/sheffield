@@ -26,13 +26,18 @@ export const FEEDS = {
 };
 
 // toggleable layers, grouped — each group toggles as a whole or per item: [id, label, on?].
-// terrain, buildings and roads are the permanent base map (always on, not listed here).
+// `base` is the base map (3d buildings, lidar relief, osm roads) — the only group on by default.
 export const GROUPS = [
+  ["base", "base", [
+    ["buildings", "3d buildings", true],
+    ["terrain", "lidar", true],
+    ["roads", "osm", true],
+  ]],
   ["transport", "transport", [
-    ["trams", "trams", true],
+    ["trams", "trams", false],
     ["stops", "tram stops", false],
     ["bus_stops", "bus stops", false],
-    ["vehicles", "live buses", true],
+    ["vehicles", "live buses", false],
   ]],
   ["environment", "environment", [
     ["rivers", "river levels", false],
