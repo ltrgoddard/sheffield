@@ -95,7 +95,8 @@ def pack(zoom=PACK_ZOOM, f=PACK_STEP):
         for j in range(256):
             for i in range(256):
                 r, g, b, a = px[i, j]; e = r * 256 + g + b / 256 - 32768
-                h[j * 256 + i] = -32768 if (a < 128 or e < -1000 or e > 2000) else max(-3276, min(3276, round(e * 10)))
+                # decimetres in an int16 → range ±32767 (≈3276 m); -32768 reserved for nodata.
+                h[j * 256 + i] = -32768 if (a < 128 or e < -1000 or e > 2000) else max(-32767, min(32767, round(e * 10)))
         tiles[(x, y)] = h
     if not tiles:
         sys.exit("no terrain tiles to pack — run the tiler first")
